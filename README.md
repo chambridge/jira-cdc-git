@@ -1,0 +1,233 @@
+# JIRA CDC Git Sync
+
+A Kubernetes-native system for synchronizing JIRA data into Git repositories with real-time change data capture (CDC) capabilities.
+
+## Overview
+
+This system provides automated synchronization of JIRA issues and their relationships into structured Git repositories. Each JIRA issue becomes a file, with relationships maintained through symbolic links, enabling version-controlled tracking of project data and enabling GitOps workflows for project management.
+
+## Key Features
+
+- **Real-time Sync**: Continuous synchronization of JIRA data changes
+- **Git-based Storage**: Issues stored as files with relationships as symbolic links
+- **Kubernetes Native**: Designed for deployment on Kubernetes with operator support
+- **Flexible Sync Targets**: Support for projects, issue lists, and JQL queries
+- **Rate Limiting**: Built-in JIRA API rate limiting and performance optimization
+- **Web Interface**: Simple UI for managing sync tasks and monitoring
+- **Job-based Processing**: Kubernetes Jobs handle sync operations for scalability
+
+## Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   JIRA API      │    │  Sync Backend   │    │  Git Repository │
+│                 │◄──►│                 │◄──►│                 │
+│ - Issues        │    │ - Rate Limiting │    │ - Issue Files   │
+│ - Projects      │    │ - Job Scheduler │    │ - Symbolic Links│
+│ - Changes       │    │ - API Server    │    │ - Version History│
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                               ▲
+                               │
+                       ┌─────────────────┐
+                       │  Web Interface  │
+                       │                 │
+                       │ - Sync Tasks    │
+                       │ - Monitoring    │
+                       │ - Configuration │
+                       └─────────────────┘
+```
+
+## Data Structure
+
+### Issue Files
+Each JIRA issue is stored as a structured file:
+```
+/projects/{project-key}/issues/{issue-key}.yaml
+```
+
+### Relationships
+Issue relationships are maintained via symbolic links:
+```
+/projects/{project-key}/relationships/
+├── blocks/
+│   └── {issue-key} -> ../../issues/{blocked-issue-key}.yaml
+├── subtasks/
+│   └── {parent-key}/
+│       └── {subtask-key} -> ../../../issues/{subtask-key}.yaml
+└── epic/
+    └── {epic-key}/
+        └── {story-key} -> ../../../issues/{story-key}.yaml
+```
+
+## Sync Operations
+
+### Supported Sync Types
+- **Project Sync**: All issues within a JIRA project
+- **Issue List Sync**: Specific list of issue keys
+- **JQL Query Sync**: All issues matching a JQL query
+- **Incremental Sync**: Only changed issues since last sync
+
+### Performance Considerations
+- Configurable batch sizes for API requests
+- Intelligent rate limiting with backoff strategies
+- Parallel processing for independent operations
+- Git optimization for large repositories
+
+## Development Philosophy
+
+This project follows a fast iterative delivery approach:
+- **Always Working Code**: Every commit maintains a working system
+- **Test-Driven Development**: Comprehensive test coverage at all levels
+- **Incremental Deliverables**: Each component delivers standalone value
+- **Documentation First**: Requirements and architecture documented before implementation
+
+## Architecture Design
+
+### Microservices-Ready Foundation
+The project is architected for evolution from CLI tool to full Kubernetes-native microservices:
+
+1. **Microservices Ready**:
+   - `cmd/jira-sync/` (current CLI) → Future: `cmd/api-server/`, `cmd/worker/`, `cmd/operator/`
+   - Each command becomes a separate containerized service
+   - Shared business logic enables consistent behavior across services
+
+2. **Shared Libraries**:
+   - `pkg/` components will be reused across all services
+   - Clean interfaces enable different implementations per service
+   - Dependency injection ready for testing and service composition
+
+3. **Container/Kubernetes Native**:
+   - Makefile includes Docker and K8s targets
+   - Configuration via environment variables
+   - Structured logging ready for observability platforms
+
+### Project Structure
+```
+cmd/                    # Application entry points (future microservices)
+├── jira-sync/         # CLI application (v0.1.0)
+└── [future: api-server/, worker/, operator/]
+
+pkg/                   # Public, reusable components
+├── client/           # JIRA client interfaces and implementations  
+├── git/              # Git operations
+├── schema/           # YAML schema and data models
+└── config/           # Configuration management
+
+internal/             # Private application code
+├── cli/              # CLI-specific logic
+├── sync/             # Core sync business logic
+└── filesystem/       # File operations
+
+deployments/          # Kubernetes manifests (ready for future)
+├── cli/, api/, operator/
+```
+
+## Current Release: v0.1.0
+
+### Technology Stack
+- **Language**: Go
+- **Authentication**: JIRA Personal Access Token (API tokens in future releases)
+- **Git Operations**: Local repository operations with conventional commits
+- **Configuration**: Environment variables via .env file
+- **Interface**: CLI tool for manual sync operations
+
+### Quick Start (v0.1.0)
+
+1. **Prerequisites**
+   - Go 1.21+ installed
+   - Git repository initialized
+   - JIRA Personal Access Token
+
+2. **Configuration**
+   Create `.env` file:
+   ```bash
+   JIRA_BASE_URL=https://your-domain.atlassian.net
+   JIRA_PAT=your-personal-access-token
+   ```
+
+3. **Build and Usage**
+   ```bash
+   # Build the CLI tool
+   make build
+   
+   # Sync single JIRA issue to local Git repository
+   ./build/jira-sync sync --issue=PROJ-123 --repo=/path/to/repo
+   ```
+
+### Current Capabilities
+- Sync individual JIRA issues to YAML files
+- Local Git commits with conventional commit messages
+- Support for essential JIRA fields (key, summary, description, status, assignee, reporter)
+- Basic error handling and logging
+
+### Upcoming Releases
+- **v0.2.0**: Relationship mapping and batch operations
+- **v0.3.0**: API server and Kubernetes job scheduling
+- **v0.4.0**: Kubernetes operator and advanced features
+- **v0.5.0**: Web interface and management dashboard
+
+## Documentation
+
+### Project Documentation Structure
+
+The project documentation is organized into several directories:
+
+| Directory | Purpose | Contents |
+|-----------|---------|----------|
+| **[docs/](docs/)** | User and operational documentation | [USAGE.md](docs/USAGE.md), [PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md), [DEVELOPMENT.md](docs/DEVELOPMENT.md) |
+| **[specs/](specs/)** | Technical specifications and interface documentation | Interface specs, system architecture, implementation requirements |
+| **[requirements/](requirements/)** | Product requirements and feature specifications | Release requirements, acceptance criteria, feature definitions |
+| **[releases/](releases/)** | Version-specific implementation tracking | Task lists, completion status, version documentation |
+
+### Key Documentation Files
+
+#### User Documentation
+- **[docs/USAGE.md](docs/USAGE.md)**: Complete usage guide with setup, commands, examples, and troubleshooting
+- **[docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)**: Project organization and architecture overview
+- **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**: Development setup and workflow guide
+
+#### Technical Specifications
+- **[specs/SYSTEM_ARCHITECTURE.md](specs/SYSTEM_ARCHITECTURE.md)**: Overall system architecture and design patterns
+- **[specs/CLIENT_INTERFACE.md](specs/CLIENT_INTERFACE.md)**: JIRA API client interface and implementation requirements
+- **[specs/SCHEMA_INTERFACE.md](specs/SCHEMA_INTERFACE.md)**: File operations and YAML schema specification
+- **[specs/GIT_INTERFACE.md](specs/GIT_INTERFACE.md)**: Git operations and repository management specification
+- **[specs/CONFIG_INTERFACE.md](specs/CONFIG_INTERFACE.md)**: Configuration management and validation specification
+- **[specs/CLI_INTERFACE.md](specs/CLI_INTERFACE.md)**: Command-line interface specification
+
+#### Requirements and Planning
+- **[requirements/README.md](requirements/README.md)**: Complete product requirements by release version
+- **[releases/v0.1.0/tasks.md](releases/v0.1.0/tasks.md)**: Implementation tasks and completion status for v0.1.0
+
+### Documentation for Developers
+
+For developers working on the project:
+
+1. **Start with**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for development environment setup
+2. **Architecture**: [specs/SYSTEM_ARCHITECTURE.md](specs/SYSTEM_ARCHITECTURE.md) for system design
+3. **Interfaces**: [specs/](specs/) directory for detailed interface specifications
+4. **Requirements**: [requirements/README.md](requirements/README.md) for feature requirements
+5. **Implementation**: [releases/v0.1.0/tasks.md](releases/v0.1.0/tasks.md) for current implementation status
+
+### Documentation for Users
+
+For users of the tool:
+
+1. **Quick Start**: See the "Quick Start (v0.1.0)" section above
+2. **Complete Guide**: [docs/USAGE.md](docs/USAGE.md) for comprehensive usage documentation
+3. **Configuration**: [docs/USAGE.md#setup-configuration](docs/USAGE.md#setup-configuration) for detailed setup instructions
+4. **Troubleshooting**: [docs/USAGE.md#troubleshooting](docs/USAGE.md#troubleshooting) for common issues and solutions
+
+## Contributing
+
+This project uses conventional commits with DCO sign-off requirements. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed development workflow and contributing guidelines.
+
+### Development Workflow
+
+1. Review [specs/SYSTEM_ARCHITECTURE.md](specs/SYSTEM_ARCHITECTURE.md) for architecture overview
+2. Follow [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for setup and workflow
+3. Check [releases/v0.1.0/tasks.md](releases/v0.1.0/tasks.md) for current implementation status
+4. Reference [specs/](specs/) for interface specifications when implementing features
+
+## License
+
+Apache 2.0 - See LICENSE file for details.

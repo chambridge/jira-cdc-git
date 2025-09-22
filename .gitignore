@@ -1,0 +1,149 @@
+# Prompts and user input capture
+.prompts/
+
+# Secrets and credentials - NEVER commit these
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+.env
+.env.*
+!.env.example
+config/secrets.yaml
+config/secrets.yml
+
+# Go specific
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+coverage.xml
+
+# Dependency directories
+vendor/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Python specific
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Kubernetes and Docker
+*.log
+*.pid
+*.seed
+*.tar
+*.tgz
+
+# Helm
+charts/*.tgz
+charts/*/charts/
+charts/*/requirements.lock
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# Documentation generation
+docs/_build/
+site/
+
+# Local development
+.local/
+local/
+dev/
+*.local
+
+# Git sync data (for testing)
+sync-data/
+test-repos/
+
+# Monitoring and metrics
+*.pprof
+
+# Generated files
+*_generated.go
+*.pb.go
+*_gen.go
+
+# Release artifacts
+release/
+
+# Claude
+CLAUDE.md
+.claude/
+
+requirements/
+releases/
