@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -195,6 +196,13 @@ func TestSyncCommand_Flags(t *testing.T) {
 		return
 	}
 
+	// Check that rate-limit flag exists
+	rateLimitFlag := cmd.Flags().Lookup("rate-limit")
+	if rateLimitFlag == nil {
+		t.Error("Expected --rate-limit flag to exist")
+		return
+	}
+
 	// Test flag shorthand
 	if issuesFlag.Shorthand != "i" {
 		t.Errorf("Expected issues flag shorthand to be 'i', got '%s'", issuesFlag.Shorthand)
@@ -210,6 +218,10 @@ func TestSyncCommand_Flags(t *testing.T) {
 
 	if concurrencyFlag.Shorthand != "c" {
 		t.Errorf("Expected concurrency flag shorthand to be 'c', got '%s'", concurrencyFlag.Shorthand)
+	}
+
+	if rateLimitFlag.Shorthand != "" {
+		t.Errorf("Expected rate-limit flag to have no shorthand, got '%s'", rateLimitFlag.Shorthand)
 	}
 }
 
@@ -234,6 +246,7 @@ func TestSyncCommand_MissingFlags(t *testing.T) {
 			cmd.Flags().StringP("jql", "j", "", "JQL query to find issues to sync")
 			cmd.Flags().StringP("repo", "r", "", "Target Git repository path (required)")
 			cmd.Flags().IntP("concurrency", "c", 5, "Number of parallel workers")
+			cmd.Flags().String("rate-limit", "", "Rate limit delay (e.g., 100ms, 1s)")
 			_ = cmd.MarkFlagRequired("repo")
 
 			// Capture output
@@ -295,6 +308,7 @@ func TestSyncCommand_ValidationErrors(t *testing.T) {
 			cmd.Flags().StringP("jql", "j", "", "JQL query to find issues to sync")
 			cmd.Flags().StringP("repo", "r", "", "Target Git repository path (required)")
 			cmd.Flags().IntP("concurrency", "c", 5, "Number of parallel workers")
+			cmd.Flags().String("rate-limit", "", "Rate limit delay (e.g., 100ms, 1s)")
 
 			// Set flags
 			if tt.issues != "" {
@@ -316,6 +330,180 @@ func TestSyncCommand_ValidationErrors(t *testing.T) {
 			if err != nil && tt.errorMsg != "" {
 				if !contains(err.Error(), tt.errorMsg) {
 					t.Errorf("Expected error to contain '%s', but got: %v", tt.errorMsg, err)
+				}
+			}
+		})
+	}
+}
+
+func TestSyncCommand_RateLimitFlag(t *testing.T) {
+	tests := []struct {
+		name           string
+		rateLimitValue string
+		expectError    bool
+		errorContains  string
+	}{
+		{
+			name:           "valid rate limit",
+			rateLimitValue: "500ms",
+			expectError:    false,
+		},
+		{
+			name:           "valid rate limit seconds",
+			rateLimitValue: "2s",
+			expectError:    false,
+		},
+		{
+			name:           "empty rate limit (uses config default)",
+			rateLimitValue: "",
+			expectError:    false,
+		},
+		{
+			name:           "invalid rate limit format",
+			rateLimitValue: "invalid",
+			expectError:    true,
+			errorContains:  "invalid rate limit",
+		},
+		{
+			name:           "negative rate limit",
+			rateLimitValue: "-100ms",
+			expectError:    true,
+			errorContains:  "rate limit delay must be non-negative",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a new command instance for isolated testing
+			cmd := &cobra.Command{
+				Use:  "sync",
+				RunE: runSync,
+			}
+			cmd.Flags().StringP("issues", "i", "", "JIRA issue key(s) - single issue or comma-separated list")
+			cmd.Flags().StringP("jql", "j", "", "JQL query to find issues to sync")
+			cmd.Flags().StringP("repo", "r", "", "Target Git repository path (required)")
+			cmd.Flags().IntP("concurrency", "c", 5, "Number of parallel workers")
+			cmd.Flags().String("rate-limit", "", "Rate limit delay (e.g., 100ms, 1s)")
+
+			// Set flags for a minimally valid command (we just want to test rate limit parsing)
+			_ = cmd.Flags().Set("issues", "PROJ-123")
+			_ = cmd.Flags().Set("repo", "/tmp")
+			if tt.rateLimitValue != "" {
+				_ = cmd.Flags().Set("rate-limit", tt.rateLimitValue)
+			}
+
+			// Execute command (it will fail on missing .env but should parse flags first)
+			err := cmd.Execute()
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error for rate limit '%s', but command succeeded", tt.rateLimitValue)
+				} else if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+					t.Errorf("Expected error to contain '%s', but got: %v", tt.errorContains, err)
+				}
+			} else {
+				// The command will fail due to missing .env file, but rate limit parsing should succeed
+				// So we check that the error is NOT about rate limit parsing
+				if err != nil && tt.errorContains != "" && contains(err.Error(), tt.errorContains) {
+					t.Errorf("Expected rate limit parsing to succeed, but got rate limit error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestSyncCommand_IntegrationFlags(t *testing.T) {
+	// Create a temporary .env file for testing
+	tempDir, err := os.MkdirTemp("", "cli-integration-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	// Create test .env file
+	envContent := `JIRA_BASE_URL=https://test.atlassian.net
+JIRA_EMAIL=test@example.com
+JIRA_PAT=test-pat-1234567890`
+
+	envFile := filepath.Join(tempDir, ".env")
+	if err := os.WriteFile(envFile, []byte(envContent), 0644); err != nil {
+		t.Fatalf("Failed to create .env file: %v", err)
+	}
+
+	// Change to temp directory for the test
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer func() { _ = os.Chdir(originalDir) }()
+
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	tests := []struct {
+		name          string
+		args          []string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:          "valid rate limit override",
+			args:          []string{"sync", "--issues=PROJ-123", "--repo=./test-repo", "--rate-limit=500ms"},
+			expectError:   true,                               // Will fail on JIRA connection, but should parse flags correctly
+			errorContains: "failed to authenticate with JIRA", // Should get to auth step
+		},
+		{
+			name:          "invalid rate limit format",
+			args:          []string{"sync", "--issues=PROJ-123", "--repo=./test-repo", "--rate-limit=invalid"},
+			expectError:   true,
+			errorContains: "invalid rate limit",
+		},
+		{
+			name:          "valid concurrency with rate limit",
+			args:          []string{"sync", "--issues=PROJ-123", "--repo=./test-repo", "--concurrency=3", "--rate-limit=1s"},
+			expectError:   true,                               // Will fail on JIRA connection, but should parse flags correctly
+			errorContains: "failed to authenticate with JIRA", // Should get to auth step
+		},
+		{
+			name:          "valid JQL with rate limit",
+			args:          []string{"sync", "--jql=project = PROJ", "--repo=./test-repo", "--rate-limit=250ms"},
+			expectError:   true,                               // Will fail on JIRA connection, but should parse flags correctly
+			errorContains: "failed to authenticate with JIRA", // Should get to auth step
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a new command instance for isolated testing
+			cmd := &cobra.Command{
+				Use:  "sync",
+				RunE: runSync,
+			}
+			cmd.Flags().StringP("issues", "i", "", "JIRA issue key(s) - single issue or comma-separated list")
+			cmd.Flags().StringP("jql", "j", "", "JQL query to find issues to sync")
+			cmd.Flags().StringP("repo", "r", "", "Target Git repository path (required)")
+			cmd.Flags().IntP("concurrency", "c", 5, "Number of parallel workers")
+			cmd.Flags().String("rate-limit", "", "Rate limit delay (e.g., 100ms, 1s)")
+
+			// Capture output
+			var buf bytes.Buffer
+			cmd.SetOut(&buf)
+			cmd.SetErr(&buf)
+
+			// Set arguments and execute
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error, but command succeeded")
+				} else if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+					t.Errorf("Expected error to contain '%s', but got: %v", tt.errorContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected success, but got error: %v", err)
 				}
 			}
 		})

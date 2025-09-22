@@ -151,17 +151,29 @@ deployments/          # Kubernetes manifests (ready for future)
    make build
    
    # Sync single JIRA issue to local Git repository
-   ./build/jira-sync sync --issue=PROJ-123 --repo=/path/to/repo
+   ./build/jira-sync sync --issues=PROJ-123 --repo=/path/to/repo
+   
+   # Sync multiple issues with custom rate limiting
+   ./build/jira-sync sync --issues=PROJ-1,PROJ-2,PROJ-3 --repo=/path/to/repo --rate-limit=200ms
+   
+   # Sync issues using JQL query
+   ./build/jira-sync sync --jql="project = PROJ AND status = 'To Do'" --repo=/path/to/repo
+   
+   # Batch sync with custom concurrency
+   ./build/jira-sync sync --jql="Epic Link = PROJ-123" --repo=/path/to/repo --concurrency=8
    ```
 
-### Current Capabilities
-- Sync individual JIRA issues to YAML files
-- Local Git commits with conventional commit messages
-- Support for essential JIRA fields (key, summary, description, status, assignee, reporter)
-- Basic error handling and logging
+### Current Capabilities (v0.2.0)
+- **Batch Operations**: Sync multiple issues via comma-separated lists or JQL queries
+- **Relationship Mapping**: Symbolic links for epic/story, subtasks, and blocks/clones relationships
+- **Rate Limiting**: Configurable API throttling with --rate-limit flag (e.g., 100ms, 1s, 2s)
+- **Parallel Processing**: Configurable concurrency with --concurrency flag (1-10 workers)
+- **Progress Reporting**: Real-time feedback for batch operations
+- **Enhanced CLI**: Comprehensive help text with usage examples and performance guidelines
+- **Local Git Integration**: Conventional commits with proper metadata and issue relationships
+- **Comprehensive Testing**: 297+ tests with 55%+ coverage including integration tests
 
 ### Upcoming Releases
-- **v0.2.0**: Relationship mapping and batch operations
 - **v0.3.0**: API server and Kubernetes job scheduling
 - **v0.4.0**: Kubernetes operator and advanced features
 - **v0.5.0**: Web interface and management dashboard

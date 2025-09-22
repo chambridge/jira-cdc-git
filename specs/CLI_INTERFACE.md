@@ -40,12 +40,18 @@ type GlobalFlags struct {
 ### Flag Definitions
 ```go
 func init() {
+    // Sync operation flags (mutually exclusive)
+    syncCmd.Flags().StringVarP(&flags.Issues, "issues", "i", "", "JIRA issue key(s) - single issue or comma-separated list")
+    syncCmd.Flags().StringVarP(&flags.JQL, "jql", "j", "", "JQL query to find issues to sync")
+    
     // Required flags
-    syncCmd.Flags().StringVarP(&flags.Issues, "issues", "i", "", "JIRA issue key(s) - single issue or comma-separated list (required)")
     syncCmd.Flags().StringVarP(&flags.Repo, "repo", "r", "", "Git repository path (required)")
     
+    // Performance tuning flags (v0.2.0)
+    syncCmd.Flags().IntVarP(&flags.Concurrency, "concurrency", "c", 5, "Parallel workers for batch processing (1-10, default: 5)")
+    syncCmd.Flags().StringVar(&flags.RateLimit, "rate-limit", "", "API call delay override (e.g., 100ms, 1s, 2s)")
+    
     // Mark required flags
-    syncCmd.MarkFlagRequired("issues")
     syncCmd.MarkFlagRequired("repo")
     
     // Global flags
@@ -155,6 +161,57 @@ func validateRepositoryPath(repoPath string) error {
 }
 ```
 
+### Rate Limit Validation (v0.2.0)
+```go
+func validateRateLimit(rateLimitStr string) (time.Duration, error) {
+    if rateLimitStr == "" {
+        return 0, nil // Use config default
+    }
+    
+    duration, err := time.ParseDuration(rateLimitStr)
+    if err != nil {
+        return 0, &CLIError{
+            Type:    "ValidationError",
+            Field:   "rate-limit",
+            Message: fmt.Sprintf("invalid duration format '%s': %v (expected: 100ms, 1s, 2s, etc.)", rateLimitStr, err),
+        }
+    }
+    
+    if duration < 0 {
+        return 0, &CLIError{
+            Type:    "ValidationError",
+            Field:   "rate-limit", 
+            Message: fmt.Sprintf("rate limit delay must be non-negative, got %v", duration),
+        }
+    }
+    
+    return duration, nil
+}
+```
+
+### Mutual Exclusivity Validation (v0.2.0)
+```go
+func validateMutualExclusivity(issues, jql string) error {
+    if issues != "" && jql != "" {
+        return &CLIError{
+            Type:    "ValidationError",
+            Field:   "sync-mode",
+            Message: "cannot specify both --issues and --jql flags",
+        }
+    }
+    
+    if issues == "" && jql == "" {
+        return &CLIError{
+            Type:    "ValidationError", 
+            Field:   "sync-mode",
+            Message: "must specify either --issues or --jql flag",
+        }
+    }
+    
+    return nil
+}
+```
+
 ## Command Implementation
 
 ### Sync Command Structure
@@ -166,10 +223,20 @@ var syncCmd = &cobra.Command{
 in the specified Git repository with conventional commit formatting.
 
 Each issue will be stored as: {repo}/projects/{PROJECT}/issues/{ISSUE-KEY}.yaml`,
-    Example: `  jira-sync sync --issues=PROJ-123 --repo=./my-repo
-  jira-sync sync --issues=PROJ-1,PROJ-2,PROJ-3 --repo=./my-repo
-  jira-sync sync -i TEAM-456 -r /path/to/repository
-  jira-sync sync --issues=RHOAIENG-789 --repo=. --log-level=debug`,
+    Example: `  # Single issue sync
+  jira-sync sync --issues=PROJ-123 --repo=./my-repo
+  
+  # Multiple issues sync with rate limiting
+  jira-sync sync --issues=PROJ-1,PROJ-2,PROJ-3 --repo=./my-repo --rate-limit=200ms
+  
+  # JQL query sync with custom concurrency
+  jira-sync sync --jql="project = PROJ AND status = 'To Do'" --repo=./my-repo --concurrency=8
+  
+  # Conservative sync for busy JIRA instances
+  jira-sync sync --jql="Epic Link = PROJ-123" --repo=./my-repo --concurrency=2 --rate-limit=1s
+  
+  # Debug mode with shortcuts
+  jira-sync sync -i TEAM-456 -r /path/to/repository -l debug`,
     RunE: runSyncCommand,
 }
 ```

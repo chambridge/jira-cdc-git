@@ -84,6 +84,73 @@ jira-sync sync --issues=<ISSUE-KEY> --repo=<REPOSITORY-PATH>
 ./build/jira-sync sync --help
 ```
 
+## Batch Operations (v0.2.0)
+
+### Sync Multiple Issues
+
+Sync multiple issues by providing a comma-separated list:
+
+```bash
+# Sync multiple specific issues
+./build/jira-sync sync --issues=PROJ-123,PROJ-456,PROJ-789 --repo=./my-project
+
+# With custom rate limiting (slower for busy JIRA instances)
+./build/jira-sync sync --issues=PROJ-1,PROJ-2,PROJ-3 --repo=./my-project --rate-limit=500ms
+
+# With increased concurrency (faster processing)
+./build/jira-sync sync --issues=PROJ-1,PROJ-2,PROJ-3 --repo=./my-project --concurrency=8
+```
+
+### JQL Query Sync
+
+Sync issues using JIRA Query Language (JQL) for flexible targeting:
+
+```bash
+# Sync all issues in a project with specific status
+./build/jira-sync sync --jql="project = PROJ AND status = 'To Do'" --repo=./my-project
+
+# Sync all issues in an epic
+./build/jira-sync sync --jql="Epic Link = PROJ-123" --repo=./my-project
+
+# Sync issues assigned to current user
+./build/jira-sync sync --jql="assignee = currentUser()" --repo=./my-project
+
+# Sync recently updated issues
+./build/jira-sync sync --jql="updated >= -7d AND project = PROJ" --repo=./my-project
+```
+
+### Performance Tuning
+
+Adjust sync performance based on your JIRA instance capacity:
+
+```bash
+# Conservative (for busy/slow JIRA instances)
+./build/jira-sync sync --jql="project = PROJ" --repo=./my-project --concurrency=2 --rate-limit=1s
+
+# Default (recommended for most instances)
+./build/jira-sync sync --jql="project = PROJ" --repo=./my-project --concurrency=5 --rate-limit=100ms
+
+# Aggressive (for dedicated/fast JIRA instances)
+./build/jira-sync sync --jql="project = PROJ" --repo=./my-project --concurrency=10 --rate-limit=50ms
+```
+
+### Rate Limiting Configuration
+
+The `--rate-limit` flag controls the delay between API calls:
+
+- **100ms** (default): Good for most JIRA instances
+- **500ms-1s**: Better for busy or slow JIRA instances  
+- **50ms**: Only for dedicated or very fast JIRA instances
+- **2s+**: For heavily loaded instances or when being very conservative
+
+### Concurrency Configuration
+
+The `--concurrency` flag controls parallel workers:
+
+- **2-3**: Conservative, good for busy JIRA instances
+- **5** (default): Balanced performance for most scenarios
+- **8-10**: Aggressive, only for dedicated JIRA instances
+
 ## How It Works
 
 The sync process follows these steps:
@@ -97,28 +164,56 @@ The sync process follows these steps:
 
 ## File Structure
 
-Issues are organized in a structured directory layout:
+Issues are organized in a structured directory layout with relationship mapping (v0.2.0):
 
 ```
 your-repo/
 └── projects/
     └── {PROJECT-KEY}/
-        └── issues/
-            ├── {PROJECT-KEY}-123.yaml
-            ├── {PROJECT-KEY}-456.yaml
-            └── ...
+        ├── issues/
+        │   ├── {PROJECT-KEY}-123.yaml
+        │   ├── {PROJECT-KEY}-456.yaml
+        │   └── ...
+        └── relationships/
+            ├── epic_links/
+            │   └── {epic-key} -> ../../issues/{story-key}.yaml
+            ├── subtasks/
+            │   └── {parent-key} -> ../../issues/{subtask-key}.yaml
+            └── issue_links/
+                ├── blocks/
+                │   └── {blocker-key} -> ../../../issues/{blocked-key}.yaml
+                └── clones/
+                    └── {original-key} -> ../../../issues/{clone-key}.yaml
 ```
 
-**Example:**
+**Example with Relationships:**
 ```
 my-repo/
 └── projects/
     └── RHOAIENG/
-        └── issues/
-            ├── RHOAIENG-123.yaml
-            ├── RHOAIENG-456.yaml
-            └── RHOAIENG-789.yaml
+        ├── issues/
+        │   ├── RHOAIENG-123.yaml    # Epic
+        │   ├── RHOAIENG-456.yaml    # Story in Epic 123
+        │   ├── RHOAIENG-789.yaml    # Subtask of Story 456
+        │   └── RHOAIENG-999.yaml    # Bug that blocks Story 456
+        └── relationships/
+            ├── epic_links/
+            │   └── RHOAIENG-123 -> ../../issues/RHOAIENG-456.yaml
+            ├── subtasks/
+            │   └── RHOAIENG-456 -> ../../issues/RHOAIENG-789.yaml
+            └── issue_links/
+                └── blocks/
+                    └── RHOAIENG-999 -> ../../../issues/RHOAIENG-456.yaml
 ```
+
+### Relationship Types
+
+The system creates symbolic links for these JIRA relationship types:
+
+- **Epic Links**: Stories linked to epics via "Epic Link" field
+- **Subtasks**: Parent-child task relationships 
+- **Issue Links**: Blocks, clones, duplicates, and other custom link types
+- **Story-Epic**: Reverse epic relationships for navigation
 
 ## YAML File Format
 

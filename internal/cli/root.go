@@ -18,11 +18,29 @@ var buildInfo BuildInfo
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "jira-sync",
-	Short: "Sync JIRA issues to Git repositories",
-	Long: `JIRA CDC Git Sync - A tool for synchronizing JIRA issues into Git repositories.
+	Short: "Sync JIRA issues to Git repositories with relationship mapping and batch processing",
+	Long: `JIRA CDC Git Sync - A Kubernetes-native tool for synchronizing JIRA data into Git repositories.
 
-This tool fetches JIRA issues and stores them as YAML files in a structured
-Git repository, maintaining relationships and enabling GitOps workflows.`,
+Fetches JIRA issues and stores them as structured YAML files with symbolic link relationships,
+enabling GitOps workflows and version-controlled project tracking. Supports batch operations,
+rate limiting, and comprehensive relationship mapping (epic/story, subtasks, blocks/clones).
+
+Key Features:
+  • Issue-to-file mapping with structured YAML output
+  • Symbolic link relationships for issue dependencies  
+  • Batch processing with configurable concurrency and rate limiting
+  • JQL query support for targeted issue synchronization
+  • Conventional Git commits with proper metadata
+  • Progress reporting and comprehensive error handling
+
+Configuration:
+  Create a .env file with JIRA credentials:
+    JIRA_BASE_URL=https://your-instance.atlassian.net
+    JIRA_EMAIL=your-email@company.com
+    JIRA_PAT=your-personal-access-token
+
+Getting Started:
+  jira-sync sync --issues=PROJ-123 --repo=./my-repo`,
 	Version: buildInfo.Version,
 }
 
