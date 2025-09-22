@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/chambrid/jira-cdc-git/internal/sync"
 	"github.com/chambrid/jira-cdc-git/pkg/client"
@@ -19,15 +20,42 @@ import (
 // syncCmd represents the sync command
 var syncCmd = &cobra.Command{
 	Use:   "sync",
-	Short: "Sync JIRA issue(s) to a Git repository",
-	Long: `Sync one or more JIRA issues to a Git repository as YAML files.
+	Short: "Sync JIRA issue(s) to a Git repository with relationship mapping",
+	Long: `Sync JIRA issues to a Git repository as structured YAML files with symbolic link relationships.
 
-Each issue will be stored at: {repo}/projects/{project-key}/issues/{issue-key}.yaml
+This command fetches issues from JIRA and stores them as YAML files in a organized directory 
+structure, creating symbolic links to represent issue relationships (epic/story, subtasks, 
+blocks/clones). Supports batch operations with rate limiting and progress feedback.
 
-Examples:
-  jira-sync sync --issues=PROJ-123 --repo=/path/to/repo
-  jira-sync sync --issues=PROJ-1,PROJ-2,PROJ-3 --repo=/path/to/repo
-  jira-sync sync --jql="project = PROJ AND status = 'To Do'" --repo=/path/to/repo`,
+File Structure:
+  {repo}/projects/{project-key}/issues/{issue-key}.yaml        # Issue data
+  {repo}/projects/{project-key}/relationships/{type}/          # Relationship links
+
+Sync Modes:
+  • Single/Multiple Issues: --issues=PROJ-123 or --issues=PROJ-1,PROJ-2,PROJ-3
+  • JQL Query: --jql="project = PROJ AND status = 'To Do'"
+
+Performance:
+  • Default: 5 workers, 100ms rate limit (recommended for most JIRA instances)
+  • High load: --concurrency=2 --rate-limit=500ms (gentler on JIRA API)
+  • Fast sync: --concurrency=10 --rate-limit=50ms (use carefully)`,
+	Example: `  # Sync single issue
+  jira-sync sync --issues=PROJ-123 --repo=./my-repo
+
+  # Sync multiple issues with custom rate limiting
+  jira-sync sync --issues=PROJ-1,PROJ-2,PROJ-3 --repo=./my-repo --rate-limit=200ms
+
+  # Sync all issues in epic using JQL
+  jira-sync sync --jql="Epic Link = PROJ-123" --repo=./my-repo
+
+  # Sync with custom concurrency for faster processing
+  jira-sync sync --jql="project = PROJ AND status = 'To Do'" --repo=./my-repo --concurrency=8
+
+  # Sync to current directory with debug logging
+  jira-sync sync --issues=TEAM-456 --repo=. --log-level=debug
+
+  # Gentle sync for overloaded JIRA instances
+  jira-sync sync --jql="assignee = currentUser()" --repo=./issues --concurrency=2 --rate-limit=1s`,
 	RunE: runSync,
 }
 
@@ -36,6 +64,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	jqlArg, _ := cmd.Flags().GetString("jql")
 	repo, _ := cmd.Flags().GetString("repo")
 	concurrency, _ := cmd.Flags().GetInt("concurrency")
+	rateLimitArg, _ := cmd.Flags().GetString("rate-limit")
 
 	// Validate mutual exclusivity of --issues and --jql
 	if issuesArg != "" && jqlArg != "" {
@@ -50,12 +79,28 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid repository path: %w", err)
 	}
 
+	// Validate rate limit if provided
+	var rateLimitOverride *time.Duration
+	if rateLimitArg != "" {
+		parsed, err := parseRateLimit(rateLimitArg)
+		if err != nil {
+			return fmt.Errorf("invalid rate limit: %w", err)
+		}
+		rateLimitOverride = &parsed
+	}
+
 	// Step 1: Load configuration
 	fmt.Println("📄 Loading configuration...")
 	configLoader := config.NewDotEnvLoader()
 	cfg, err := configLoader.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	// Apply rate limit override if provided
+	if rateLimitOverride != nil {
+		fmt.Printf("⏱️  Overriding rate limit delay to %v\n", *rateLimitOverride)
+		cfg.RateLimitDelay = *rateLimitOverride
 	}
 
 	// Step 2: Initialize JIRA client
@@ -290,14 +335,33 @@ func displaySyncResults(result *sync.BatchResult) {
 	}
 }
 
+// parseRateLimit parses and validates a rate limit duration string
+func parseRateLimit(rateLimitStr string) (time.Duration, error) {
+	if rateLimitStr == "" {
+		return 0, fmt.Errorf("rate limit cannot be empty")
+	}
+
+	duration, err := time.ParseDuration(rateLimitStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration format '%s': %w (expected format: 100ms, 1s, 2s, etc.)", rateLimitStr, err)
+	}
+
+	if duration < 0 {
+		return 0, fmt.Errorf("rate limit delay must be non-negative, got %v", duration)
+	}
+
+	return duration, nil
+}
+
 func init() {
 	rootCmd.AddCommand(syncCmd)
 
 	// Sync command flags
-	syncCmd.Flags().StringP("issues", "i", "", "JIRA issue key(s) - single issue or comma-separated list")
-	syncCmd.Flags().StringP("jql", "j", "", "JQL query to find issues to sync")
-	syncCmd.Flags().StringP("repo", "r", "", "Target Git repository path (required)")
-	syncCmd.Flags().IntP("concurrency", "c", 5, "Number of parallel workers (default: 5, recommended: 2-5)")
+	syncCmd.Flags().StringP("issues", "i", "", "JIRA issue key(s) - single issue (PROJ-123) or comma-separated list (PROJ-1,PROJ-2)")
+	syncCmd.Flags().StringP("jql", "j", "", "JQL query to find issues (e.g., 'project = PROJ AND status = \"To Do\"')")
+	syncCmd.Flags().StringP("repo", "r", "", "Target Git repository path - will be created if it doesn't exist (required)")
+	syncCmd.Flags().IntP("concurrency", "c", 5, "Parallel workers for batch processing (1-10, default: 5, recommended: 2-5 for most instances)")
+	syncCmd.Flags().String("rate-limit", "", "API call delay override (e.g., 100ms, 1s, 2s) - use higher values for busy JIRA instances")
 
 	// Mark required flags
 	_ = syncCmd.MarkFlagRequired("repo")
