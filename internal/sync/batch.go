@@ -8,6 +8,7 @@ import (
 
 	"github.com/chambrid/jira-cdc-git/pkg/client"
 	"github.com/chambrid/jira-cdc-git/pkg/git"
+	"github.com/chambrid/jira-cdc-git/pkg/links"
 	"github.com/chambrid/jira-cdc-git/pkg/schema"
 )
 
@@ -24,6 +25,7 @@ type BatchSyncEngine struct {
 	client       client.Client
 	fileWriter   schema.FileWriter
 	gitRepo      git.Repository
+	linkManager  links.LinkManager
 	concurrency  int
 	progressChan chan ProgressUpdate
 }
@@ -85,7 +87,7 @@ type SyncResult struct {
 
 // NewBatchSyncEngine creates a new batch sync engine with configurable concurrency
 // concurrency: number of parallel workers (recommended 2-5 based on SPIKE-005)
-func NewBatchSyncEngine(client client.Client, fileWriter schema.FileWriter, gitRepo git.Repository, concurrency int) *BatchSyncEngine {
+func NewBatchSyncEngine(client client.Client, fileWriter schema.FileWriter, gitRepo git.Repository, linkManager links.LinkManager, concurrency int) *BatchSyncEngine {
 	// Validate concurrency based on SPIKE-005 findings
 	if concurrency < 1 {
 		concurrency = 1
@@ -98,6 +100,7 @@ func NewBatchSyncEngine(client client.Client, fileWriter schema.FileWriter, gitR
 		client:       client,
 		fileWriter:   fileWriter,
 		gitRepo:      gitRepo,
+		linkManager:  linkManager,
 		concurrency:  concurrency,
 		progressChan: make(chan ProgressUpdate, concurrency*2), // Buffered to prevent blocking
 	}
@@ -301,6 +304,11 @@ func (b *BatchSyncEngine) GetProgressChannel() <-chan ProgressUpdate {
 	return b.progressChan
 }
 
+// CloseProgressChannel closes the progress channel to signal completion
+func (b *BatchSyncEngine) CloseProgressChannel() {
+	close(b.progressChan)
+}
+
 // worker processes sync tasks from the task channel
 func (b *BatchSyncEngine) worker(ctx context.Context, workerID int, tasks <-chan SyncTask, results chan<- SyncResult, repoPath string, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -370,6 +378,32 @@ func (b *BatchSyncEngine) processSingleIssue(ctx context.Context, issueKey, repo
 	yamlFilePath, err := b.fileWriter.WriteIssueToYAML(issueData, repoPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to write YAML for issue %s: %w", issueKey, err)
+	}
+
+	// Send progress update for relationships step
+	select {
+	case b.progressChan <- ProgressUpdate{
+		CurrentIssue: issueKey,
+		Step:         "relationships",
+		Timestamp:    time.Now(),
+		WorkerID:     workerID,
+	}:
+	default:
+	}
+
+	// Create relationship links (symbolic links)
+	if err := b.linkManager.CreateRelationshipLinks(issueData, repoPath); err != nil {
+		// Don't fail the whole sync if symbolic links fail, just log and continue
+		// This makes the system more robust on platforms with limited symlink support
+		select {
+		case b.progressChan <- ProgressUpdate{
+			CurrentIssue: issueKey,
+			Step:         "relationships_warning",
+			Timestamp:    time.Now(),
+			WorkerID:     workerID,
+		}:
+		default:
+		}
 	}
 
 	// Send progress update for commit step

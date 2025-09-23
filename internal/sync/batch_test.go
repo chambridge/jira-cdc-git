@@ -8,6 +8,7 @@ import (
 
 	"github.com/chambrid/jira-cdc-git/pkg/client"
 	"github.com/chambrid/jira-cdc-git/pkg/git"
+	"github.com/chambrid/jira-cdc-git/pkg/links"
 	"github.com/chambrid/jira-cdc-git/pkg/schema"
 )
 
@@ -44,8 +45,9 @@ func TestNewBatchSyncEngine(t *testing.T) {
 			mockClient := client.NewMockClient()
 			mockWriter := schema.NewMockFileWriter()
 			mockGit := git.NewMockRepository()
+			mockLinks := links.NewMockLinkManager()
 
-			engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, tt.concurrency)
+			engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, mockLinks, tt.concurrency)
 
 			if engine.concurrency != tt.expectedConc {
 				t.Errorf("NewBatchSyncEngine() concurrency = %d, want %d", engine.concurrency, tt.expectedConc)
@@ -63,6 +65,10 @@ func TestNewBatchSyncEngine(t *testing.T) {
 				t.Error("NewBatchSyncEngine() gitRepo not set correctly")
 			}
 
+			if engine.linkManager != mockLinks {
+				t.Error("NewBatchSyncEngine() linkManager not set correctly")
+			}
+
 			if engine.progressChan == nil {
 				t.Error("NewBatchSyncEngine() progressChan not initialized")
 			}
@@ -75,6 +81,7 @@ func TestBatchSyncEngine_SyncIssues_Success(t *testing.T) {
 	mockClient := client.NewMockClient()
 	mockWriter := schema.NewMockFileWriter()
 	mockGit := git.NewMockRepository()
+	mockLinks := links.NewMockLinkManager()
 
 	// Configure mock data - add test issues to mock client
 	issues := []string{"PROJ-1", "PROJ-2", "PROJ-3", "PROJ-4", "PROJ-5"}
@@ -89,7 +96,7 @@ func TestBatchSyncEngine_SyncIssues_Success(t *testing.T) {
 	repoPath := "/test/repo"
 	mockGit.Repositories[repoPath] = true
 
-	engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, 1)
+	engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, mockLinks, 1)
 
 	ctx := context.Background()
 	result, err := engine.SyncIssuesSync(ctx, issues, repoPath)
@@ -151,6 +158,7 @@ func TestBatchSyncEngine_SyncIssues_WithMissingIssues(t *testing.T) {
 	mockClient := client.NewMockClient()
 	mockWriter := schema.NewMockFileWriter()
 	mockGit := git.NewMockRepository()
+	mockLinks := links.NewMockLinkManager()
 
 	// Configure mock data with some issues missing (to simulate failures)
 	issues := []string{"PROJ-1", "PROJ-2", "PROJ-3"}
@@ -161,7 +169,7 @@ func TestBatchSyncEngine_SyncIssues_WithMissingIssues(t *testing.T) {
 		Summary: "Test issue PROJ-1",
 	}
 
-	engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, 1)
+	engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, mockLinks, 1)
 	repoPath := "/test/repo"
 
 	ctx := context.Background()
@@ -195,6 +203,7 @@ func TestBatchSyncEngine_SyncJQL_Success(t *testing.T) {
 	mockClient := client.NewMockClient()
 	mockWriter := schema.NewMockFileWriter()
 	mockGit := git.NewMockRepository()
+	mockLinks := links.NewMockLinkManager()
 
 	// Configure mock JQL search - map JQL to issue keys
 	jql := "project = PROJ AND status = 'To Do'"
@@ -214,7 +223,7 @@ func TestBatchSyncEngine_SyncJQL_Success(t *testing.T) {
 	repoPath := "/test/repo"
 	mockGit.Repositories[repoPath] = true
 
-	engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, 1)
+	engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, mockLinks, 1)
 
 	ctx := context.Background()
 	result, err := engine.SyncJQLSync(ctx, jql, repoPath)
@@ -247,11 +256,12 @@ func TestBatchSyncEngine_SyncJQL_SearchFailure(t *testing.T) {
 	mockClient := client.NewMockClient()
 	mockWriter := schema.NewMockFileWriter()
 	mockGit := git.NewMockRepository()
+	mockLinks := links.NewMockLinkManager()
 
 	// Configure mock JQL search to fail
 	mockClient.JQLError = errors.New("JQL search failed")
 
-	engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, 1)
+	engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, mockLinks, 1)
 	jql := "invalid JQL syntax"
 	repoPath := "/test/repo"
 
@@ -277,8 +287,9 @@ func TestBatchSyncEngine_GetProgressChannel(t *testing.T) {
 	mockClient := client.NewMockClient()
 	mockWriter := schema.NewMockFileWriter()
 	mockGit := git.NewMockRepository()
+	mockLinks := links.NewMockLinkManager()
 
-	engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, 1)
+	engine := NewBatchSyncEngine(mockClient, mockWriter, mockGit, mockLinks, 1)
 
 	// Verify progress channel is available
 	progressChan := engine.GetProgressChannel()

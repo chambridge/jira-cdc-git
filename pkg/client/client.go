@@ -258,12 +258,12 @@ func getStatusCategory(status *jira.Status) string {
 
 // Helper function to format JIRA time to ISO string
 func formatJIRATime(jiraTime jira.Time) string {
-	// Use fmt.Sprintf to convert jira.Time to string
-	timeStr := fmt.Sprintf("%v", jiraTime)
-	if timeStr == "" || timeStr == "<nil>" {
+	// Convert jira.Time to time.Time for formatting
+	timeValue := time.Time(jiraTime)
+	if timeValue.IsZero() {
 		return ""
 	}
-	return timeStr
+	return timeValue.Format("2006-01-02T15:04:05.000Z")
 }
 
 // extractRelationships extracts relationship information from JIRA issue
@@ -427,9 +427,24 @@ func (c *JIRAClient) handleAPIError(err error, response *jira.Response, context 
 		}
 	}
 
+	// Include more diagnostic information for debugging
+	message := "JIRA API request failed"
+	if response != nil {
+		switch response.StatusCode {
+		case 429:
+			message = fmt.Sprintf("rate limit exceeded (HTTP %d) - consider increasing --rate-limit", response.StatusCode)
+		case 500, 502, 503, 504:
+			message = fmt.Sprintf("server error (HTTP %d) - JIRA server may be overloaded", response.StatusCode)
+		default:
+			message = fmt.Sprintf("HTTP %d error - %s", response.StatusCode, http.StatusText(response.StatusCode))
+		}
+	} else if err != nil {
+		message = fmt.Sprintf("network/connection error: %v", err)
+	}
+
 	return &ClientError{
 		Type:    "api_error",
-		Message: "JIRA API request failed",
+		Message: message,
 		Err:     err,
 		Context: context,
 	}
