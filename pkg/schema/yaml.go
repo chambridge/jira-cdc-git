@@ -128,7 +128,9 @@ func extractProjectKey(issueKey string) string {
 	if len(parts) < 2 {
 		return ""
 	}
-	return parts[0]
+	// Return all parts except the last one (which should be the issue number)
+	// This handles cases like "MY-PROJECT-456" -> "MY-PROJECT"
+	return strings.Join(parts[:len(parts)-1], "-")
 }
 
 // ToYAML converts an issue to YAML bytes for direct use

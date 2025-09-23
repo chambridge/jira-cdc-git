@@ -16,6 +16,11 @@ import (
 // TestEndToEndWorkflow tests the complete JIRA → YAML → Git workflow
 // This test requires a valid .env file with JIRA credentials
 func TestEndToEndWorkflow(t *testing.T) {
+	// Skip if no real JIRA configuration
+	if os.Getenv("JIRA_URL") == "" {
+		t.Skip("Skipping end-to-end test - no JIRA configuration found")
+	}
+
 	// Skip if running in CI or if no .env file exists
 	if os.Getenv("CI") != "" {
 		t.Skip("Skipping end-to-end test in CI environment")
