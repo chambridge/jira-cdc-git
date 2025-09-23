@@ -13,6 +13,7 @@ import (
 	"github.com/chambrid/jira-cdc-git/pkg/client"
 	"github.com/chambrid/jira-cdc-git/pkg/config"
 	"github.com/chambrid/jira-cdc-git/pkg/git"
+	"github.com/chambrid/jira-cdc-git/pkg/links"
 	"github.com/chambrid/jira-cdc-git/pkg/schema"
 	"github.com/spf13/cobra"
 )
@@ -36,9 +37,9 @@ Sync Modes:
   • JQL Query: --jql="project = PROJ AND status = 'To Do'"
 
 Performance:
-  • Default: 5 workers, 100ms rate limit (recommended for most JIRA instances)
-  • High load: --concurrency=2 --rate-limit=500ms (gentler on JIRA API)
-  • Fast sync: --concurrency=10 --rate-limit=50ms (use carefully)`,
+  • Default: 5 workers, 500ms rate limit (recommended for most JIRA instances)
+  • High load: --concurrency=2 --rate-limit=1s (gentler on JIRA API)
+  • Fast sync: --concurrency=8 --rate-limit=200ms (use carefully)`,
 	Example: `  # Sync single issue
   jira-sync sync --issues=PROJ-123 --repo=./my-repo
 
@@ -79,14 +80,14 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid repository path: %w", err)
 	}
 
-	// Validate rate limit if provided
-	var rateLimitOverride *time.Duration
+	// Parse rate limit (default or user-provided)
+	var rateLimitDuration time.Duration
 	if rateLimitArg != "" {
 		parsed, err := parseRateLimit(rateLimitArg)
 		if err != nil {
 			return fmt.Errorf("invalid rate limit: %w", err)
 		}
-		rateLimitOverride = &parsed
+		rateLimitDuration = parsed
 	}
 
 	// Step 1: Load configuration
@@ -97,10 +98,13 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// Apply rate limit override if provided
-	if rateLimitOverride != nil {
-		fmt.Printf("⏱️  Overriding rate limit delay to %v\n", *rateLimitOverride)
-		cfg.RateLimitDelay = *rateLimitOverride
+	// Apply rate limit (show message only if different from default)
+	if rateLimitDuration > 0 {
+		defaultDuration := 500 * time.Millisecond
+		if rateLimitDuration != defaultDuration {
+			fmt.Printf("⏱️  Using rate limit delay: %v\n", rateLimitDuration)
+		}
+		cfg.RateLimitDelay = rateLimitDuration
 	}
 
 	// Step 2: Initialize JIRA client
@@ -131,7 +135,8 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	// Step 4: Initialize batch sync engine
 	fileWriter := schema.NewYAMLFileWriter()
-	batchEngine := sync.NewBatchSyncEngine(jiraClient, fileWriter, gitRepo, concurrency)
+	linkManager := links.NewSymbolicLinkManager()
+	batchEngine := sync.NewBatchSyncEngine(jiraClient, fileWriter, gitRepo, linkManager, concurrency)
 
 	// Step 5: Start progress monitoring
 	ctx := context.Background()
@@ -172,11 +177,29 @@ func runSync(cmd *cobra.Command, args []string) error {
 		fmt.Printf("🚀 Syncing JIRA issues matching JQL query to repository %s\n", repo)
 		fmt.Printf("📋 JQL: %s\n", jqlArg)
 
-		result, err = batchEngine.SyncJQL(ctx, jqlArg, repo)
+		// First, get the count of issues to be processed
+		fmt.Print("🔍 Searching for matching issues...")
+		jqlIssues, err := jiraClient.SearchIssues(jqlArg)
+		if err != nil {
+			return fmt.Errorf("failed to execute JQL search: %w", err)
+		}
+
+		fmt.Printf("\r✅ Found %d issues to process                \n", len(jqlIssues))
+
+		// Extract issue keys from the search results
+		issueKeys := make([]string, len(jqlIssues))
+		for i, issue := range jqlIssues {
+			issueKeys[i] = issue.Key
+		}
+
+		result, err = batchEngine.SyncIssues(ctx, issueKeys, repo)
 		if err != nil {
 			return fmt.Errorf("JQL sync failed: %w", err)
 		}
 	}
+
+	// Close progress channel to signal completion
+	batchEngine.CloseProgressChannel()
 
 	// Wait for progress monitoring to complete
 	<-progressDone
@@ -361,7 +384,7 @@ func init() {
 	syncCmd.Flags().StringP("jql", "j", "", "JQL query to find issues (e.g., 'project = PROJ AND status = \"To Do\"')")
 	syncCmd.Flags().StringP("repo", "r", "", "Target Git repository path - will be created if it doesn't exist (required)")
 	syncCmd.Flags().IntP("concurrency", "c", 5, "Parallel workers for batch processing (1-10, default: 5, recommended: 2-5 for most instances)")
-	syncCmd.Flags().String("rate-limit", "", "API call delay override (e.g., 100ms, 1s, 2s) - use higher values for busy JIRA instances")
+	syncCmd.Flags().String("rate-limit", "500ms", "API call delay between requests (default: 500ms, examples: 100ms, 1s, 2s) - increase for busy JIRA instances")
 
 	// Mark required flags
 	_ = syncCmd.MarkFlagRequired("repo")
