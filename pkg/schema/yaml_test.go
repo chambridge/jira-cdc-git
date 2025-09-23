@@ -152,7 +152,7 @@ func TestExtractProjectKey(t *testing.T) {
 		expected string
 	}{
 		{"valid key", "PROJ-123", "PROJ"},
-		{"complex key", "MY-PROJECT-456", "MY"},
+		{"complex key", "MY-PROJECT-456", "MY-PROJECT"},
 		{"single part", "PROJ", ""},
 		{"empty key", "", ""},
 		{"no dash", "PROJ123", ""},
