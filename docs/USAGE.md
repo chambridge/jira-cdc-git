@@ -119,6 +119,78 @@ Sync issues using JIRA Query Language (JQL) for flexible targeting:
 ./build/jira-sync sync --jql="updated >= -7d AND project = PROJ" --repo=./my-project
 ```
 
+## Smart JQL Capabilities (v0.2.0+)
+
+### EPIC-Focused Sync
+
+The system provides intelligent EPIC discovery and smart JQL generation:
+
+```bash
+# Simple EPIC sync (auto-generates comprehensive JQL)
+./build/jira-sync sync --epic=RHOAIENG-123 --repo=./my-project
+
+# Preview what issues would be synced before execution
+./build/jira-sync sync --epic=RHOAIENG-123 --preview
+
+# EPIC sync with custom parameters
+./build/jira-sync sync --epic=RHOAIENG-123 --repo=./my-project --include-subtasks --include-linked
+```
+
+### Template-Based Queries
+
+Use built-in templates for common sync patterns:
+
+```bash
+# Sync all EPIC issues using template
+./build/jira-sync sync --template=epic-all-issues --param=epic_key:RHOAIENG-123 --repo=./my-project
+
+# Sync only EPIC stories
+./build/jira-sync sync --template=epic-stories-only --param=epic_key:RHOAIENG-123 --repo=./my-project
+
+# Sync active issues in a project
+./build/jira-sync sync --template=project-active-issues --param=project_key:RHOAIENG --repo=./my-project
+
+# Sync current sprint issues
+./build/jira-sync sync --template=my-current-sprint --repo=./my-project
+
+# Sync recent updates
+./build/jira-sync sync --template=recent-updates --param=project_key:RHOAIENG --param=days:14 --repo=./my-project
+```
+
+### Query Validation and Preview
+
+Validate and preview JQL queries before execution:
+
+```bash
+# Validate JQL syntax
+./build/jira-sync validate --jql="project = RHOAIENG AND status = 'To Do'"
+
+# Preview query results (shows counts, breakdowns, execution time)
+./build/jira-sync preview --jql="Epic Link = RHOAIENG-123"
+
+# Preview with detailed breakdown
+./build/jira-sync preview --jql="project = RHOAIENG" --detailed
+```
+
+### Saved Query Management
+
+Save and reuse complex queries:
+
+```bash
+# Save a query for reuse
+./build/jira-sync save-query --name="my-epic-sync" --jql="Epic Link = RHOAIENG-123" --description="My EPIC sync pattern"
+
+# List saved queries
+./build/jira-sync list-queries
+
+# Use saved query
+./build/jira-sync sync --saved-query="my-epic-sync" --repo=./my-project
+
+# Export/import queries
+./build/jira-sync export-queries --file=my-queries.json
+./build/jira-sync import-queries --file=my-queries.json
+```
+
 ### Performance Tuning
 
 Adjust sync performance based on your JIRA instance capacity:

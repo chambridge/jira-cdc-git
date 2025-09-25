@@ -122,16 +122,18 @@ deployments/          # Kubernetes manifests (ready for future)
 ├── cli/, api/, operator/
 ```
 
-## Current Release: v0.1.0
+## Current Release: v0.2.0
 
 ### Technology Stack
-- **Language**: Go
-- **Authentication**: JIRA Personal Access Token (API tokens in future releases)
+- **Language**: Go 1.21+
+- **Authentication**: JIRA Personal Access Token (PAT)
 - **Git Operations**: Local repository operations with conventional commits
 - **Configuration**: Environment variables via .env file
-- **Interface**: CLI tool for manual sync operations
+- **Interface**: Advanced CLI tool with batch operations and JQL support
+- **JQL Integration**: Smart query building with template system and EPIC analysis
+- **Architecture**: Clean interface-based design ready for microservices evolution
 
-### Quick Start (v0.1.0)
+### Quick Start (v0.2.0)
 
 1. **Prerequisites**
    - Go 1.21+ installed
@@ -171,11 +173,23 @@ deployments/          # Kubernetes manifests (ready for future)
 - **Progress Reporting**: Real-time feedback for batch operations
 - **Enhanced CLI**: Comprehensive help text with usage examples and performance guidelines
 - **Local Git Integration**: Conventional commits with proper metadata and issue relationships
-- **Comprehensive Testing**: 297+ tests with 55%+ coverage including integration tests
+- **EPIC Analysis**: Intelligent EPIC discovery and hierarchy mapping with 85%+ test coverage
+- **Smart JQL Building**: Template-based query generation with 5 built-in patterns
+- **Query Preview**: Show issue counts and execution time before sync operations
+- **Saved Queries**: Persistent query favorites with usage tracking
+- **Comprehensive Testing**: 300+ tests with enhanced integration testing
+
+### Enhanced JQL Capabilities (v0.2.0+)
+- **EPIC Query Building**: Automatic expansion of `--epic=PROJ-123` to complete JQL
+- **Template System**: 5 built-in templates for common patterns (epic-all-issues, epic-stories-only, project-active-issues, my-current-sprint, recent-updates)
+- **Query Validation**: Syntax checking with intelligent suggestions
+- **Query Optimization**: Performance improvements for large datasets
+- **Query Preview**: Fast preview showing issue counts, project breakdown, and execution time
+- **Saved Queries**: JSON-based persistence with favorites and usage tracking
 
 ### Upcoming Releases
-- **v0.3.0**: API server and Kubernetes job scheduling
-- **v0.4.0**: Kubernetes operator and advanced features
+- **v0.3.0**: Incremental sync, sync profiles, and enhanced EPIC workflows
+- **v0.4.0**: API server and Kubernetes job scheduling  
 - **v0.5.0**: Web interface and management dashboard
 
 ## Documentation

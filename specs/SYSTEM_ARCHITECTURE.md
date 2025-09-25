@@ -37,18 +37,22 @@ The jira-cdc-git system implements a clean architecture pattern with clear separ
 ┌─────────────────────────────────────────────────────────────┐
 │                      Application Layer                      │
 │  ┌─────────────────────────────────────────────────────────┐ │
-│  │                 Sync Workflow                           │ │
-│  │  Config → Client → Issue → Schema → Git → Commit       │ │
+│  │              Enhanced Sync Workflow                     │ │
+│  │Config → Client → JQL/EPIC → Batch → Schema → Git       │ │
 │  └─────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                       Domain Layer                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌──────┐ │
-│  │   Config    │  │   Client    │  │   Schema    │  │ Git  │ │
-│  │ (Provider)  │  │ (Interface) │  │(FileWriter) │ │(Repo)│ │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └──────┘ │
+│ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────┐ │
+│ │  Config  │ │  Client  │ │   JQL    │ │  Schema  │ │ Git  │ │
+│ │(Provider)│ │(Interface)│ │(Builder) │ │(Writer)  │ │(Repo)│ │
+│ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────┘ │
+│ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐        │ │
+│ │   EPIC   │ │  Links   │ │  Batch   │ │  Sync    │        │ │
+│ │(Analyzer)│ │(Manager) │ │ (Engine) │ │(Results) │        │ │
+│ └──────────┘ └──────────┘ └──────────┘ └──────────┘        │ │
 └─────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -83,6 +87,8 @@ type DotEnvLoader struct {
 // Domain interface
 type Client interface {
     GetIssue(issueKey string) (*Issue, error)
+    SearchIssues(jql string) ([]*Issue, error)
+    SearchIssuesWithPagination(jql string, startAt, maxResults int) ([]*Issue, int, error)
     Authenticate() error
 }
 
@@ -90,6 +96,65 @@ type Client interface {
 type JIRAClient struct {
     client *jira.Client
     config *config.Config
+}
+```
+
+### JQL Query Builder Component
+```go
+// Domain interface
+type QueryBuilder interface {
+    BuildEpicQuery(epicKey string) (*Query, error)
+    BuildFromTemplate(templateName string, params map[string]string) (*Query, error)
+    ValidateQuery(jql string) (*ValidationResult, error)
+    OptimizeQuery(jql string) (*Query, error)
+    PreviewQuery(jql string) (*PreviewResult, error)
+    SaveQuery(name, description, jql string) error
+    GetSavedQueries() ([]*SavedQuery, error)
+    GetTemplates() []*Template
+}
+
+// Implementation
+type JIRAQueryBuilder struct {
+    client       Client
+    epicAnalyzer epic.EpicAnalyzer
+    savedQueries []*SavedQuery
+    templates    []*Template
+}
+```
+
+### EPIC Analyzer Component
+```go
+// Domain interface
+type EpicAnalyzer interface {
+    AnalyzeEpic(epicKey string) (*AnalysisResult, error)
+    DiscoverEpicIssues(epicKey string) ([]*client.Issue, error)
+    GetEpicHierarchy(epicKey string) (*EpicHierarchy, error)
+    ValidateEpicCompleteness(epicKey string) (*CompletenessReport, error)
+}
+
+// Implementation
+type JIRAEpicAnalyzer struct {
+    client  client.Client
+    options *DiscoveryOptions
+    cache   map[string]*AnalysisResult
+}
+```
+
+### Batch Sync Engine Component
+```go
+// Domain interface
+type BatchSyncOrchestrator interface {
+    SyncIssues(ctx context.Context, issues []string, repoPath string) (*BatchResult, error)
+    SyncJQL(ctx context.Context, jql string, repoPath string) (*BatchResult, error)
+}
+
+// Implementation
+type BatchSyncEngine struct {
+    client       client.Client
+    fileWriter   schema.FileWriter
+    gitRepo      git.Repository
+    linkManager  links.LinkManager
+    concurrency  int
 }
 ```
 

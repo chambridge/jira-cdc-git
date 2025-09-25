@@ -9,6 +9,8 @@ The Client interface defines the contract for JIRA API operations in the jira-cd
 ```go
 type Client interface {
     GetIssue(issueKey string) (*Issue, error)
+    SearchIssues(jql string) ([]*Issue, error)
+    SearchIssuesWithPagination(jql string, startAt, maxResults int) ([]*Issue, int, error)
     Authenticate() error
 }
 ```
@@ -19,16 +21,18 @@ type Client interface {
 
 ```go
 type Issue struct {
-    Key         string `json:"key" yaml:"key"`
-    Summary     string `json:"summary" yaml:"summary"`
-    Description string `json:"description" yaml:"description"`
-    Status      Status `json:"status" yaml:"status"`
-    Assignee    User   `json:"assignee" yaml:"assignee"`
-    Reporter    User   `json:"reporter" yaml:"reporter"`
-    Created     string `json:"created" yaml:"created"`
-    Updated     string `json:"updated" yaml:"updated"`
-    Priority    string `json:"priority" yaml:"priority"`
-    IssueType   string `json:"issuetype" yaml:"issuetype"`
+    Key           string         `json:"key" yaml:"key"`
+    Summary       string         `json:"summary" yaml:"summary"`
+    Description   string         `json:"description" yaml:"description"`
+    Status        Status         `json:"status" yaml:"status"`
+    Assignee      User           `json:"assignee" yaml:"assignee"`
+    Reporter      User           `json:"reporter" yaml:"reporter"`
+    Created       string         `json:"created" yaml:"created"`
+    Updated       string         `json:"updated" yaml:"updated"`
+    Priority      string         `json:"priority" yaml:"priority"`
+    IssueType     string         `json:"issuetype" yaml:"issuetype"`
+    Project       Project        `json:"project" yaml:"project"`
+    Relationships *Relationships `json:"relationships,omitempty" yaml:"relationships,omitempty"`
 }
 ```
 
@@ -47,6 +51,29 @@ type Status struct {
 type User struct {
     Name  string `json:"name" yaml:"name"`
     Email string `json:"email,omitempty" yaml:"email,omitempty"`
+}
+```
+
+### Project Structure
+
+```go
+type Project struct {
+    Key  string `json:"key" yaml:"key"`
+    Name string `json:"name" yaml:"name"`
+}
+```
+
+### Relationships Structure
+
+```go
+type Relationships struct {
+    EpicLink    string   `json:"epic_link,omitempty" yaml:"epic_link,omitempty"`
+    Parent      string   `json:"parent,omitempty" yaml:"parent,omitempty"`
+    Subtasks    []string `json:"subtasks,omitempty" yaml:"subtasks,omitempty"`
+    Blocks      []string `json:"blocks,omitempty" yaml:"blocks,omitempty"`
+    Clones      []string `json:"clones,omitempty" yaml:"clones,omitempty"`
+    Duplicates  []string `json:"duplicates,omitempty" yaml:"duplicates,omitempty"`
+    Relates     []string `json:"relates,omitempty" yaml:"relates,omitempty"`
 }
 ```
 
@@ -129,6 +156,18 @@ if err := client.Authenticate(); err != nil {
 issue, err := client.GetIssue("PROJ-123")
 if err != nil {
     return fmt.Errorf("failed to fetch issue: %w", err)
+}
+
+// Search issues using JQL
+issues, err := client.SearchIssues("project = PROJ AND status = 'To Do'")
+if err != nil {
+    return fmt.Errorf("failed to search issues: %w", err)
+}
+
+// Search with pagination for preview
+issues, totalCount, err := client.SearchIssuesWithPagination("project = PROJ", 0, 50)
+if err != nil {
+    return fmt.Errorf("failed to search with pagination: %w", err)
 }
 ```
 
