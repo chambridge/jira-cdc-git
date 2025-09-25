@@ -101,6 +101,41 @@ Sync multiple issues by providing a comma-separated list:
 ./build/jira-sync sync --issues=PROJ-1,PROJ-2,PROJ-3 --repo=./my-project --concurrency=8
 ```
 
+## Incremental Sync Operations (v0.3.0)
+
+### State-Based Sync
+
+Only sync issues that have changed since the last sync:
+
+```bash
+# Incremental sync (only changed issues)
+./build/jira-sync sync --jql="project = PROJ" --repo=./my-project --incremental
+
+# Force full sync (ignore state, sync all issues)
+./build/jira-sync sync --issues=PROJ-1,PROJ-2 --repo=./my-project --force
+
+# Dry run to preview what would be synced
+./build/jira-sync sync --jql="Epic Link = PROJ-123" --repo=./my-project --dry-run
+
+# Combine incremental with other flags
+./build/jira-sync sync --jql="project = PROJ" --repo=./my-project --incremental --rate-limit=200ms
+```
+
+### State Management
+
+The tool automatically tracks sync history and provides state management:
+
+```bash
+# View current sync state
+./build/jira-sync status --repo=./my-project
+
+# Reset sync state (force full sync on next run)
+./build/jira-sync reset-state --repo=./my-project
+
+# Backup current state
+./build/jira-sync backup-state --repo=./my-project --file=backup.yaml
+```
+
 ### JQL Query Sync
 
 Sync issues using JIRA Query Language (JQL) for flexible targeting:

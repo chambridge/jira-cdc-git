@@ -122,18 +122,19 @@ deployments/          # Kubernetes manifests (ready for future)
 ├── cli/, api/, operator/
 ```
 
-## Current Release: v0.2.0
+## Current Release: v0.3.0
 
 ### Technology Stack
 - **Language**: Go 1.21+
 - **Authentication**: JIRA Personal Access Token (PAT)
 - **Git Operations**: Local repository operations with conventional commits
 - **Configuration**: Environment variables via .env file
-- **Interface**: Advanced CLI tool with batch operations and JQL support
+- **Interface**: Advanced CLI tool with batch operations, JQL support, and incremental sync
+- **State Management**: File-based sync state tracking with YAML/JSON persistence
 - **JQL Integration**: Smart query building with template system and EPIC analysis
 - **Architecture**: Clean interface-based design ready for microservices evolution
 
-### Quick Start (v0.2.0)
+### Quick Start (v0.3.0)
 
 1. **Prerequisites**
    - Go 1.21+ installed
@@ -161,23 +162,36 @@ deployments/          # Kubernetes manifests (ready for future)
    # Sync issues using JQL query
    ./build/jira-sync sync --jql="project = PROJ AND status = 'To Do'" --repo=/path/to/repo
    
+   # Incremental sync (only changed issues since last sync)
+   ./build/jira-sync sync --jql="Epic Link = PROJ-123" --repo=/path/to/repo --incremental
+   
+   # Force full sync (ignore state, sync all issues)
+   ./build/jira-sync sync --issues=PROJ-1,PROJ-2 --repo=/path/to/repo --force
+   
+   # Dry run to preview changes without syncing
+   ./build/jira-sync sync --jql="project = PROJ" --repo=/path/to/repo --dry-run
+   
    # Batch sync with custom concurrency
    ./build/jira-sync sync --jql="Epic Link = PROJ-123" --repo=/path/to/repo --concurrency=8
    ```
 
-### Current Capabilities (v0.2.0)
+### Current Capabilities (v0.3.0)
 - **Batch Operations**: Sync multiple issues via comma-separated lists or JQL queries
 - **Relationship Mapping**: Symbolic links for epic/story, subtasks, and blocks/clones relationships
+- **Incremental Sync**: Only sync changed issues since last sync with state management
+- **State Tracking**: Persistent sync history and timestamps with YAML/JSON storage
+- **Force & Dry Run**: Options for full sync override and preview-only mode
 - **Rate Limiting**: Configurable API throttling with --rate-limit flag (e.g., 100ms, 1s, 2s)
 - **Parallel Processing**: Configurable concurrency with --concurrency flag (1-10 workers)
-- **Progress Reporting**: Real-time feedback for batch operations
+- **Progress Reporting**: Real-time feedback for batch operations with sync statistics
 - **Enhanced CLI**: Comprehensive help text with usage examples and performance guidelines
 - **Local Git Integration**: Conventional commits with proper metadata and issue relationships
 - **EPIC Analysis**: Intelligent EPIC discovery and hierarchy mapping with 85%+ test coverage
 - **Smart JQL Building**: Template-based query generation with 5 built-in patterns
 - **Query Preview**: Show issue counts and execution time before sync operations
 - **Saved Queries**: Persistent query favorites with usage tracking
-- **Comprehensive Testing**: 300+ tests with enhanced integration testing
+- **State Recovery**: Robust handling of interrupted syncs with validation and backup
+- **Comprehensive Testing**: 400+ tests with enhanced integration testing across components
 
 ### Enhanced JQL Capabilities (v0.2.0+)
 - **EPIC Query Building**: Automatic expansion of `--epic=PROJ-123` to complete JQL
@@ -188,7 +202,6 @@ deployments/          # Kubernetes manifests (ready for future)
 - **Saved Queries**: JSON-based persistence with favorites and usage tracking
 
 ### Upcoming Releases
-- **v0.3.0**: Incremental sync, sync profiles, and enhanced EPIC workflows
 - **v0.4.0**: API server and Kubernetes job scheduling  
 - **v0.5.0**: Web interface and management dashboard
 
