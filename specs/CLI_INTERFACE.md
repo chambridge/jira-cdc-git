@@ -51,6 +51,11 @@ func init() {
     syncCmd.Flags().IntVarP(&flags.Concurrency, "concurrency", "c", 5, "Parallel workers for batch processing (1-10, default: 5)")
     syncCmd.Flags().StringVar(&flags.RateLimit, "rate-limit", "", "API call delay override (e.g., 100ms, 1s, 2s)")
     
+    // State management flags (v0.3.0)
+    syncCmd.Flags().BoolVar(&flags.Incremental, "incremental", false, "Perform incremental sync (only sync changed issues since last sync)")
+    syncCmd.Flags().BoolVar(&flags.Force, "force", false, "Force full sync (ignore state and sync all issues)")
+    syncCmd.Flags().BoolVar(&flags.DryRun, "dry-run", false, "Show what would be synced without making changes")
+    
     // Mark required flags
     syncCmd.MarkFlagRequired("repo")
     
@@ -212,6 +217,28 @@ func validateMutualExclusivity(issues, jql string) error {
 }
 ```
 
+### State Flag Validation (v0.3.0)
+```go
+func validateStateFlags(incremental, force, dryRun bool) error {
+    // Force and incremental are mutually exclusive
+    if incremental && force {
+        return &CLIError{
+            Type:    "ValidationError",
+            Field:   "state-flags",
+            Message: "cannot specify both --incremental and --force flags",
+        }
+    }
+    
+    // Dry run can be combined with other flags but should warn
+    if dryRun && force {
+        // This is valid but should log a warning
+        return nil
+    }
+    
+    return nil
+}
+```
+
 ## Command Implementation
 
 ### Sync Command Structure
@@ -231,6 +258,15 @@ Each issue will be stored as: {repo}/projects/{PROJECT}/issues/{ISSUE-KEY}.yaml`
   
   # JQL query sync with custom concurrency
   jira-sync sync --jql="project = PROJ AND status = 'To Do'" --repo=./my-repo --concurrency=8
+  
+  # Incremental sync (only changed issues)
+  jira-sync sync --jql="project = PROJ" --repo=./my-repo --incremental
+  
+  # Force full sync (ignore state)
+  jira-sync sync --issues=PROJ-1,PROJ-2 --repo=./my-repo --force
+  
+  # Dry run to preview changes
+  jira-sync sync --jql="Epic Link = PROJ-123" --repo=./my-repo --dry-run
   
   # Conservative sync for busy JIRA instances
   jira-sync sync --jql="Epic Link = PROJ-123" --repo=./my-repo --concurrency=2 --rate-limit=1s

@@ -15,6 +15,7 @@ import (
 	"github.com/chambrid/jira-cdc-git/pkg/git"
 	"github.com/chambrid/jira-cdc-git/pkg/links"
 	"github.com/chambrid/jira-cdc-git/pkg/schema"
+	"github.com/chambrid/jira-cdc-git/pkg/state"
 	"github.com/spf13/cobra"
 )
 
@@ -35,6 +36,8 @@ File Structure:
 Sync Modes:
   • Single/Multiple Issues: --issues=PROJ-123 or --issues=PROJ-1,PROJ-2,PROJ-3
   • JQL Query: --jql="project = PROJ AND status = 'To Do'"
+  • Incremental: --incremental (sync only changed issues since last sync)
+  • Force Full: --force (ignore state and sync all issues)
 
 Performance:
   • Default: 5 workers, 500ms rate limit (recommended for most JIRA instances)
@@ -56,7 +59,16 @@ Performance:
   jira-sync sync --issues=TEAM-456 --repo=. --log-level=debug
 
   # Gentle sync for overloaded JIRA instances
-  jira-sync sync --jql="assignee = currentUser()" --repo=./issues --concurrency=2 --rate-limit=1s`,
+  jira-sync sync --jql="assignee = currentUser()" --repo=./issues --concurrency=2 --rate-limit=1s
+
+  # Incremental sync (only changed issues since last sync)
+  jira-sync sync --jql="project = PROJ" --repo=./my-repo --incremental
+
+  # Force full sync (ignore state, sync all issues)
+  jira-sync sync --issues=PROJ-1,PROJ-2 --repo=./my-repo --force
+
+  # Dry run incremental sync (show what would be synced)
+  jira-sync sync --jql="Epic Link = PROJ-123" --repo=./my-repo --incremental --dry-run`,
 	RunE: runSync,
 }
 
@@ -66,6 +78,9 @@ func runSync(cmd *cobra.Command, args []string) error {
 	repo, _ := cmd.Flags().GetString("repo")
 	concurrency, _ := cmd.Flags().GetInt("concurrency")
 	rateLimitArg, _ := cmd.Flags().GetString("rate-limit")
+	incremental, _ := cmd.Flags().GetBool("incremental")
+	force, _ := cmd.Flags().GetBool("force")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	// Validate mutual exclusivity of --issues and --jql
 	if issuesArg != "" && jqlArg != "" {
@@ -73,6 +88,11 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 	if issuesArg == "" && jqlArg == "" {
 		return fmt.Errorf("must specify either --issues or --jql flag")
+	}
+
+	// Validate incremental flags
+	if incremental && force {
+		return fmt.Errorf("cannot specify both --incremental and --force flags")
 	}
 
 	// Validate repository path
@@ -133,76 +153,160 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("git repository validation failed: %w", err)
 	}
 
-	// Step 4: Initialize batch sync engine
+	// Step 4: Initialize sync engine
 	fileWriter := schema.NewYAMLFileWriter()
 	linkManager := links.NewSymbolicLinkManager()
-	batchEngine := sync.NewBatchSyncEngine(jiraClient, fileWriter, gitRepo, linkManager, concurrency)
 
-	// Step 5: Start progress monitoring
-	ctx := context.Background()
-	progressDone := make(chan bool, 1)
-
-	go func() {
-		defer func() { progressDone <- true }()
-		monitorProgress(batchEngine.GetProgressChannel())
-	}()
-
-	// Step 6: Execute sync based on mode
+	// Choose between incremental and regular batch engine
 	var result *sync.BatchResult
-	if issuesArg != "" {
-		// Issues list mode
-		rawIssues, err := parseIssueList(issuesArg)
-		if err != nil {
-			return fmt.Errorf("failed to parse issues: %w", err)
+
+	if incremental || force || dryRun {
+		// Use incremental engine for state management
+		stateManager := state.NewFileStateManager(state.FormatYAML)
+		incrementalEngine := sync.NewIncrementalBatchSyncEngine(jiraClient, fileWriter, gitRepo, linkManager, stateManager, concurrency)
+
+		// Configure incremental sync options
+		incrementalOptions := sync.IncrementalSyncOptions{
+			Force:           force,
+			DryRun:          dryRun,
+			IncludeNew:      true,
+			IncludeModified: true,
 		}
 
-		issues, err := validateIssueList(rawIssues)
-		if err != nil {
-			return fmt.Errorf("issue validation failed: %w", err)
-		}
+		// Step 5: Execute incremental sync
+		if issuesArg != "" {
+			// Issues list mode
+			rawIssues, parseErr := parseIssueList(issuesArg)
+			if parseErr != nil {
+				return fmt.Errorf("failed to parse issues: %w", parseErr)
+			}
 
-		if len(issues) == 1 {
-			fmt.Printf("🚀 Syncing JIRA issue %s to repository %s\n", issues[0], repo)
+			issues, validateErr := validateIssueList(rawIssues)
+			if validateErr != nil {
+				return fmt.Errorf("issue validation failed: %w", validateErr)
+			}
+
+			if len(issues) == 1 {
+				if incremental {
+					fmt.Printf("🔄 Incremental sync of JIRA issue %s to repository %s\n", issues[0], repo)
+				} else if force {
+					fmt.Printf("⚡ Force sync of JIRA issue %s to repository %s\n", issues[0], repo)
+				} else if dryRun {
+					fmt.Printf("🧪 Dry run sync of JIRA issue %s to repository %s\n", issues[0], repo)
+				}
+			} else {
+				if incremental {
+					fmt.Printf("🔄 Incremental sync of %d JIRA issues to repository %s\n", len(issues), repo)
+				} else if force {
+					fmt.Printf("⚡ Force sync of %d JIRA issues to repository %s\n", len(issues), repo)
+				} else if dryRun {
+					fmt.Printf("🧪 Dry run sync of %d JIRA issues to repository %s\n", len(issues), repo)
+				}
+				fmt.Printf("📋 Issues: %s\n", strings.Join(issues, ", "))
+			}
+
+			result, err = incrementalEngine.SyncIssuesIncremental(context.Background(), issues, repo, incrementalOptions)
 		} else {
-			fmt.Printf("🚀 Syncing %d JIRA issues to repository %s\n", len(issues), repo)
-			fmt.Printf("📋 Issues: %s\n", strings.Join(issues, ", "))
+			// JQL mode
+			if incremental {
+				fmt.Printf("🔄 Incremental sync of JIRA issues matching JQL query to repository %s\n", repo)
+			} else if force {
+				fmt.Printf("⚡ Force sync of JIRA issues matching JQL query to repository %s\n", repo)
+			} else if dryRun {
+				fmt.Printf("🧪 Dry run sync of JIRA issues matching JQL query to repository %s\n", repo)
+			}
+			fmt.Printf("📋 JQL: %s\n", jqlArg)
+
+			result, err = incrementalEngine.SyncJQLIncremental(context.Background(), jqlArg, repo, incrementalOptions)
 		}
 
-		result, err = batchEngine.SyncIssues(ctx, issues, repo)
 		if err != nil {
-			return fmt.Errorf("batch sync failed: %w", err)
+			return fmt.Errorf("incremental sync failed: %w", err)
+		}
+
+		// Display additional incremental sync information
+		if !dryRun {
+			stats := incrementalEngine.GetSyncStatistics()
+			lastSyncTime := incrementalEngine.GetLastSyncTime()
+
+			if !lastSyncTime.IsZero() {
+				fmt.Printf("📊 Last sync: %s\n", lastSyncTime.Format("2006-01-02 15:04:05"))
+			}
+
+			if stats.TotalOperations > 1 {
+				fmt.Printf("📈 Total syncs performed: %d (success: %d, failed: %d)\n",
+					stats.TotalOperations, stats.SuccessfulOps, stats.FailedOps)
+			}
 		}
 	} else {
-		// JQL mode
-		fmt.Printf("🚀 Syncing JIRA issues matching JQL query to repository %s\n", repo)
-		fmt.Printf("📋 JQL: %s\n", jqlArg)
+		// Use regular batch engine for backward compatibility
+		batchEngine := sync.NewBatchSyncEngine(jiraClient, fileWriter, gitRepo, linkManager, concurrency)
 
-		// First, get the count of issues to be processed
-		fmt.Print("🔍 Searching for matching issues...")
-		jqlIssues, err := jiraClient.SearchIssues(jqlArg)
-		if err != nil {
-			return fmt.Errorf("failed to execute JQL search: %w", err)
+		// Step 5: Start progress monitoring
+		ctx := context.Background()
+		progressDone := make(chan bool, 1)
+
+		go func() {
+			defer func() { progressDone <- true }()
+			monitorProgress(batchEngine.GetProgressChannel())
+		}()
+
+		// Step 6: Execute sync based on mode
+		if issuesArg != "" {
+			// Issues list mode
+			rawIssues, parseErr := parseIssueList(issuesArg)
+			if parseErr != nil {
+				return fmt.Errorf("failed to parse issues: %w", parseErr)
+			}
+
+			issues, validateErr := validateIssueList(rawIssues)
+			if validateErr != nil {
+				return fmt.Errorf("issue validation failed: %w", validateErr)
+			}
+
+			if len(issues) == 1 {
+				fmt.Printf("🚀 Syncing JIRA issue %s to repository %s\n", issues[0], repo)
+			} else {
+				fmt.Printf("🚀 Syncing %d JIRA issues to repository %s\n", len(issues), repo)
+				fmt.Printf("📋 Issues: %s\n", strings.Join(issues, ", "))
+			}
+
+			result, err = batchEngine.SyncIssues(ctx, issues, repo)
+			if err != nil {
+				return fmt.Errorf("batch sync failed: %w", err)
+			}
+		} else {
+			// JQL mode
+			fmt.Printf("🚀 Syncing JIRA issues matching JQL query to repository %s\n", repo)
+			fmt.Printf("📋 JQL: %s\n", jqlArg)
+
+			// First, get the count of issues to be processed
+			fmt.Print("🔍 Searching for matching issues...")
+			jqlIssues, searchErr := jiraClient.SearchIssues(jqlArg)
+			if searchErr != nil {
+				return fmt.Errorf("failed to execute JQL search: %w", searchErr)
+			}
+
+			fmt.Printf("\r✅ Found %d issues to process                \n", len(jqlIssues))
+
+			// Extract issue keys from the search results
+			issueKeys := make([]string, len(jqlIssues))
+			for i, issue := range jqlIssues {
+				issueKeys[i] = issue.Key
+			}
+
+			result, err = batchEngine.SyncIssues(ctx, issueKeys, repo)
+			if err != nil {
+				return fmt.Errorf("JQL sync failed: %w", err)
+			}
 		}
 
-		fmt.Printf("\r✅ Found %d issues to process                \n", len(jqlIssues))
+		// Close progress channel to signal completion
+		batchEngine.CloseProgressChannel()
 
-		// Extract issue keys from the search results
-		issueKeys := make([]string, len(jqlIssues))
-		for i, issue := range jqlIssues {
-			issueKeys[i] = issue.Key
-		}
-
-		result, err = batchEngine.SyncIssues(ctx, issueKeys, repo)
-		if err != nil {
-			return fmt.Errorf("JQL sync failed: %w", err)
-		}
+		// Wait for progress monitoring to complete
+		<-progressDone
 	}
-
-	// Close progress channel to signal completion
-	batchEngine.CloseProgressChannel()
-
-	// Wait for progress monitoring to complete
-	<-progressDone
 
 	// Step 7: Display results
 	displaySyncResults(result)
@@ -385,6 +489,11 @@ func init() {
 	syncCmd.Flags().StringP("repo", "r", "", "Target Git repository path - will be created if it doesn't exist (required)")
 	syncCmd.Flags().IntP("concurrency", "c", 5, "Parallel workers for batch processing (1-10, default: 5, recommended: 2-5 for most instances)")
 	syncCmd.Flags().String("rate-limit", "500ms", "API call delay between requests (default: 500ms, examples: 100ms, 1s, 2s) - increase for busy JIRA instances")
+
+	// Incremental sync flags
+	syncCmd.Flags().Bool("incremental", false, "Perform incremental sync (only sync changed issues since last sync)")
+	syncCmd.Flags().Bool("force", false, "Force full sync (ignore state and sync all issues)")
+	syncCmd.Flags().Bool("dry-run", false, "Show what would be synced without making changes")
 
 	// Mark required flags
 	_ = syncCmd.MarkFlagRequired("repo")
