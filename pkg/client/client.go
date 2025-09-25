@@ -15,6 +15,7 @@ import (
 type Client interface {
 	GetIssue(issueKey string) (*Issue, error)
 	SearchIssues(jql string) ([]*Issue, error)
+	SearchIssuesWithPagination(jql string, startAt, maxResults int) ([]*Issue, int, error)
 	Authenticate() error
 }
 
@@ -187,6 +188,38 @@ func (c *JIRAClient) SearchIssues(jql string) ([]*Issue, error) {
 	}
 
 	return allIssues, nil
+}
+
+// SearchIssuesWithPagination searches for JIRA issues using JQL query with specific pagination parameters
+// Returns issues, total count, and error
+func (c *JIRAClient) SearchIssuesWithPagination(jql string, startAt, maxResults int) ([]*Issue, int, error) {
+	if jql == "" {
+		return nil, 0, &ClientError{
+			Type:    "invalid_input",
+			Message: "JQL query cannot be empty",
+		}
+	}
+
+	// Create search options with pagination
+	searchOptions := &jira.SearchOptions{
+		StartAt:    startAt,
+		MaxResults: maxResults,
+	}
+
+	// Execute JQL search
+	jiraIssues, response, err := c.client.Issue.Search(jql, searchOptions)
+	if err != nil {
+		return nil, 0, c.handleJQLError(err, response, jql)
+	}
+
+	// Convert JIRA issues to our internal Issue structure
+	var issues []*Issue
+	for _, jiraIssue := range jiraIssues {
+		issue := c.convertJIRAIssue(&jiraIssue)
+		issues = append(issues, issue)
+	}
+
+	return issues, response.Total, nil
 }
 
 // Authenticate verifies the connection and credentials

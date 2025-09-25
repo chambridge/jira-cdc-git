@@ -28,6 +28,9 @@ type MockClient struct {
 	// SearchIssuesCallCount tracks how many times SearchIssues was called
 	SearchIssuesCallCount int
 
+	// SearchIssuesWithPaginationCallCount tracks how many times SearchIssuesWithPagination was called
+	SearchIssuesWithPaginationCallCount int
+
 	// LastRequestedIssue tracks the last issue key requested
 	LastRequestedIssue string
 
@@ -114,6 +117,60 @@ func (m *MockClient) SearchIssues(jql string) ([]*Issue, error) {
 	return []*Issue{}, nil
 }
 
+// SearchIssuesWithPagination simulates JQL search with pagination for testing
+func (m *MockClient) SearchIssuesWithPagination(jql string, startAt, maxResults int) ([]*Issue, int, error) {
+	m.SearchIssuesWithPaginationCallCount++
+	m.LastJQLQuery = jql
+
+	// Simulate JQL-specific error if configured
+	if m.JQLError != nil {
+		return nil, 0, m.JQLError
+	}
+
+	// Simulate API error if configured
+	if m.APIError != nil {
+		return nil, 0, m.APIError
+	}
+
+	// Simulate authentication error if configured
+	if m.AuthenticationError != nil {
+		return nil, 0, m.AuthenticationError
+	}
+
+	// Return empty result for empty JQL
+	if jql == "" {
+		return nil, 0, &ClientError{
+			Type:    "invalid_input",
+			Message: "JQL query cannot be empty",
+		}
+	}
+
+	// Get all matching issues
+	var allIssues []*Issue
+	if issueKeys, exists := m.JQLResults[jql]; exists {
+		for _, key := range issueKeys {
+			if issue, found := m.Issues[key]; found {
+				allIssues = append(allIssues, issue)
+			}
+		}
+	}
+
+	totalCount := len(allIssues)
+
+	// Apply pagination
+	if startAt >= totalCount {
+		return []*Issue{}, totalCount, nil
+	}
+
+	end := startAt + maxResults
+	if end > totalCount {
+		end = totalCount
+	}
+
+	paginatedIssues := allIssues[startAt:end]
+	return paginatedIssues, totalCount, nil
+}
+
 // Authenticate simulates authentication check
 func (m *MockClient) Authenticate() error {
 	if m.AuthenticationError != nil {
@@ -156,6 +213,7 @@ func (m *MockClient) Reset() {
 	m.JQLError = nil
 	m.GetIssueCallCount = 0
 	m.SearchIssuesCallCount = 0
+	m.SearchIssuesWithPaginationCallCount = 0
 	m.LastRequestedIssue = ""
 	m.LastJQLQuery = ""
 }
