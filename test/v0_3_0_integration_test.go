@@ -12,6 +12,7 @@ import (
 	"github.com/chambrid/jira-cdc-git/pkg/git"
 	"github.com/chambrid/jira-cdc-git/pkg/jql"
 	"github.com/chambrid/jira-cdc-git/pkg/links"
+	"github.com/chambrid/jira-cdc-git/pkg/profile"
 	"github.com/chambrid/jira-cdc-git/pkg/schema"
 	"github.com/chambrid/jira-cdc-git/pkg/state"
 	"github.com/stretchr/testify/assert"
@@ -189,6 +190,136 @@ func TestV030Integration(t *testing.T) {
 		assert.NotNil(t, result)
 		t.Logf("EPIC query generated: %s", epicQuery.JQL)
 	})
+
+	t.Run("JCG019_profile_integration_with_epic_workflow", func(t *testing.T) {
+		// Test Profile Management (JCG-019) integration with EPIC workflow
+
+		// Create temporary profile directory
+		tempProfileDir, err := os.MkdirTemp("", "profile-integration-*")
+		require.NoError(t, err, "Failed to create temp profile directory")
+		defer func() { _ = os.RemoveAll(tempProfileDir) }()
+
+		// Initialize profile manager
+		profileManager := profile.NewFileProfileManager(tempProfileDir, "yaml")
+
+		// Step 1: Create profile from EPIC template
+		variables := map[string]string{
+			"epic_key":   "TEST-1",
+			"repository": tempRepo,
+		}
+
+		createdProfile, err := profileManager.CreateFromTemplate("epic-all-issues", "test-epic-profile", variables)
+		require.NoError(t, err, "Failed to create profile from template")
+		assert.Equal(t, "test-epic-profile", createdProfile.Name)
+		assert.Equal(t, "TEST-1", createdProfile.EpicKey)
+		assert.Equal(t, tempRepo, createdProfile.Repository)
+
+		// Step 2: Validate profile can be retrieved
+		retrievedProfile, err := profileManager.GetProfile("test-epic-profile")
+		require.NoError(t, err, "Failed to retrieve created profile")
+		assert.Equal(t, createdProfile.Name, retrievedProfile.Name)
+		assert.Equal(t, createdProfile.EpicKey, retrievedProfile.EpicKey)
+
+		// Step 3: Test profile with incremental sync engine
+		incrementalEngine := sync.NewIncrementalBatchSyncEngine(
+			jiraClient, fileWriter, gitRepo, linkManager, stateManager, 1)
+
+		// Convert EPIC profile to JQL for testing
+		expectedJQL := `"Epic Link" = TEST-1`
+
+		options := sync.IncrementalSyncOptions{
+			Force:           true,
+			DryRun:          true, // Use dry run for integration test
+			IncludeNew:      true,
+			IncludeModified: true,
+		}
+
+		result, err := incrementalEngine.SyncJQLIncremental(
+			context.Background(),
+			expectedJQL,
+			retrievedProfile.Repository,
+			options,
+		)
+
+		require.NoError(t, err, "Profile-based sync failed")
+		assert.NotNil(t, result)
+
+		// Step 4: Record profile usage
+		err = profileManager.RecordUsage("test-epic-profile", result.Duration.Milliseconds(), err == nil)
+		require.NoError(t, err, "Failed to record profile usage")
+
+		// Verify usage was recorded
+		updatedProfile, err := profileManager.GetProfile("test-epic-profile")
+		require.NoError(t, err, "Failed to get profile after usage recording")
+		assert.Equal(t, 1, updatedProfile.UsageStats.TimesUsed)
+
+		t.Logf("✅ Profile '%s' successfully created and used in EPIC workflow", createdProfile.Name)
+	})
+
+	t.Run("JCG019_profile_templates_integration", func(t *testing.T) {
+		// Test integration between profile templates and JQL builder
+
+		tempProfileDir, err := os.MkdirTemp("", "template-integration-*")
+		require.NoError(t, err, "Failed to create temp profile directory")
+		defer func() { _ = os.RemoveAll(tempProfileDir) }()
+
+		profileManager := profile.NewFileProfileManager(tempProfileDir, "yaml")
+
+		// Test each built-in profile template
+		templates := profile.GetBuiltinTemplates()
+		assert.Greater(t, len(templates), 0, "Should have built-in templates")
+
+		for _, template := range templates {
+			t.Run(template.ID, func(t *testing.T) {
+				t.Logf("🧪 Testing profile template: %s", template.ID)
+
+				// Prepare variables for template
+				variables := map[string]string{
+					"repository": tempRepo,
+				}
+
+				// Add template-specific variables
+				switch template.ID {
+				case "epic-all-issues", "epic-stories-only":
+					variables["epic_key"] = "TEST-EPIC-1"
+				case "project-active-issues":
+					variables["project_key"] = "TEST"
+				case "assignee-current-sprint":
+					variables["assignee"] = "currentUser()"
+				case "custom-jql":
+					variables["jql"] = "project = TEST"
+				}
+
+				// Create profile from template
+				profileName := "test-" + template.ID
+				createdProfile, err := profileManager.CreateFromTemplate(template.ID, profileName, variables)
+				require.NoError(t, err, "Failed to create profile from template %s", template.ID)
+
+				// Validate profile structure
+				assert.Equal(t, profileName, createdProfile.Name)
+				assert.Equal(t, tempRepo, createdProfile.Repository)
+				assert.NotEmpty(t, createdProfile.Tags, "Profile should have tags")
+
+				// Validate profile has appropriate sync configuration
+				validation, err := profileManager.ValidateProfile(createdProfile)
+				require.NoError(t, err, "Failed to validate profile")
+				assert.True(t, validation.Valid, "Profile should be valid: %v", validation.Errors)
+
+				// Test that profile can be used for sync (dry run)
+				if createdProfile.JQL != "" {
+					// Test JQL-based profile
+					result, err := jiraClient.SearchIssues(createdProfile.JQL)
+					if err == nil {
+						t.Logf("✅ Profile template '%s' JQL validation successful: %d issues", template.ID, len(result))
+					} else {
+						t.Logf("⚠️ Profile template '%s' JQL validation failed (may be expected): %v", template.ID, err)
+					}
+				}
+
+				t.Logf("✅ Profile template '%s' successfully validated", template.ID)
+			})
+		}
+	})
 }
 
 // TestV030ComponentCompatibility tests that new JCG-018 doesn't break existing components
@@ -269,5 +400,146 @@ func TestV030ComponentCompatibility(t *testing.T) {
 
 		// All components should coexist without issues
 		t.Log("All v0.3.0 components successfully created together")
+	})
+
+	t.Run("profile_manager_compatibility", func(t *testing.T) {
+		// Test that profile manager integrates properly with other v0.3.0 components
+
+		tempProfileDir, err := os.MkdirTemp("", "profile-compat-*")
+		require.NoError(t, err)
+		defer func() { _ = os.RemoveAll(tempProfileDir) }()
+
+		profileManager := profile.NewFileProfileManager(tempProfileDir, "yaml")
+		assert.NotNil(t, profileManager)
+
+		// Create a test profile that uses EPIC functionality
+		testProfile := &profile.Profile{
+			Name:        "compatibility-test",
+			Description: "Test profile for compatibility validation",
+			EpicKey:     "TEST-EPIC-1",
+			Repository:  "/tmp/test-repo",
+			Options: profile.ProfileOptions{
+				Concurrency:  2,
+				RateLimit:    "500ms",
+				Incremental:  true,
+				Force:        false,
+				DryRun:       false,
+				IncludeLinks: true,
+			},
+			Tags: []string{"test", "compatibility"},
+		}
+
+		// Profile creation should work alongside other components
+		err = profileManager.CreateProfile(testProfile)
+		require.NoError(t, err, "Failed to create test profile")
+
+		// Validate profile
+		validation, err := profileManager.ValidateProfile(testProfile)
+		require.NoError(t, err, "Failed to validate profile")
+		assert.True(t, validation.Valid, "Profile should be valid")
+
+		// Test profile can be retrieved
+		retrieved, err := profileManager.GetProfile("compatibility-test")
+		require.NoError(t, err, "Failed to retrieve profile")
+		assert.Equal(t, testProfile.Name, retrieved.Name)
+		assert.Equal(t, testProfile.EpicKey, retrieved.EpicKey)
+
+		t.Log("✅ Profile manager compatibility with v0.3.0 components validated")
+	})
+
+	t.Run("full_v030_workflow_simulation", func(t *testing.T) {
+		// Simulate a complete v0.3.0 workflow: EPIC discovery → Profile creation → Incremental sync
+
+		tempProfileDir, err := os.MkdirTemp("", "workflow-test-*")
+		require.NoError(t, err)
+		defer func() { _ = os.RemoveAll(tempProfileDir) }()
+
+		tempRepo, err := os.MkdirTemp("", "workflow-repo-*")
+		require.NoError(t, err)
+		defer func() { _ = os.RemoveAll(tempRepo) }()
+
+		// Initialize all v0.3.0 components
+		mockClient := client.NewMockClient()
+		epicAnalyzer := epic.NewJIRAEpicAnalyzer(mockClient, epic.DefaultDiscoveryOptions())
+		queryBuilder := jql.NewJIRAQueryBuilder(mockClient, epicAnalyzer, nil)
+		profileManager := profile.NewFileProfileManager(tempProfileDir, "yaml")
+
+		fileWriter := schema.NewYAMLFileWriter()
+		gitRepo := git.NewGitRepository("Test Workflow", "test@workflow.local")
+		linkManager := links.NewSymbolicLinkManager()
+		stateManager := state.NewFileStateManager(state.FormatYAML)
+
+		// Step 1: EPIC Discovery (JCG-016)
+		// Simulate EPIC analysis would be done here in real workflow
+
+		// Step 2: JQL Building (JCG-017)
+		epicQuery, err := queryBuilder.BuildEpicQuery("TEST-EPIC-1")
+		if err != nil {
+			t.Logf("EPIC query building failed (expected with mock): %v", err)
+			// Use fallback JQL for workflow test
+			epicQuery = &jql.Query{
+				JQL:         `"Epic Link" = TEST-EPIC-1`,
+				Description: "Fallback EPIC query for workflow test",
+			}
+		}
+
+		// Step 3: Profile Creation (JCG-019)
+		workflowProfile := &profile.Profile{
+			Name:        "workflow-test-profile",
+			Description: "Complete v0.3.0 workflow test profile",
+			JQL:         epicQuery.JQL,
+			Repository:  tempRepo,
+			Options: profile.ProfileOptions{
+				Concurrency:  1,
+				RateLimit:    "100ms",
+				Incremental:  true,
+				Force:        false,
+				DryRun:       true, // Use dry run for test
+				IncludeLinks: true,
+			},
+			Tags: []string{"workflow", "test", "v030"},
+		}
+
+		err = profileManager.CreateProfile(workflowProfile)
+		require.NoError(t, err, "Failed to create workflow profile")
+
+		// Step 4: State Management + Incremental Sync (JCG-018)
+		err = gitRepo.Initialize(tempRepo)
+		require.NoError(t, err, "Failed to initialize git repo")
+
+		incrementalEngine := sync.NewIncrementalBatchSyncEngine(
+			mockClient, fileWriter, gitRepo, linkManager, stateManager, 1)
+
+		syncOptions := sync.IncrementalSyncOptions{
+			Force:           workflowProfile.Options.Force,
+			DryRun:          workflowProfile.Options.DryRun,
+			IncludeNew:      true,
+			IncludeModified: true,
+		}
+
+		// Execute workflow sync
+		result, err := incrementalEngine.SyncJQLIncremental(
+			context.Background(),
+			workflowProfile.JQL,
+			workflowProfile.Repository,
+			syncOptions,
+		)
+		require.NoError(t, err, "Workflow sync failed")
+		assert.NotNil(t, result)
+
+		// Step 5: Record usage in profile
+		err = profileManager.RecordUsage(workflowProfile.Name, result.Duration.Milliseconds(), true)
+		require.NoError(t, err, "Failed to record profile usage")
+
+		// Verify complete workflow success
+		updatedProfile, err := profileManager.GetProfile(workflowProfile.Name)
+		require.NoError(t, err, "Failed to retrieve updated profile")
+		assert.Equal(t, 1, updatedProfile.UsageStats.TimesUsed)
+
+		t.Log("✅ Complete v0.3.0 workflow simulation successful")
+		t.Logf("    EPIC Query: %s", epicQuery.JQL)
+		t.Logf("    Profile: %s", workflowProfile.Name)
+		t.Logf("    Sync Result: %d total issues", result.TotalIssues)
+		t.Logf("    Duration: %v", result.Duration)
 	})
 }

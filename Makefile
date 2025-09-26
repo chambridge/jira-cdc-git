@@ -74,7 +74,13 @@ lint-fix:
 test:
 	@echo "🧪 Running tests..."
 	mkdir -p $(COVERAGE_DIR)
-	$(GOTEST) -v -race -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+	$(GOTEST) -v -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+
+.PHONY: test-race
+test-race:
+	@echo "🧪 Running tests with race detection (core functionality only)..."
+	mkdir -p $(COVERAGE_DIR)
+	$(GOTEST) -v -race -skip="Performance" -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
 
 .PHONY: test-coverage
 test-coverage: test

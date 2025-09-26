@@ -2,11 +2,15 @@ package client
 
 import (
 	"fmt"
+	"sync"
 )
 
 // MockClient implements the Client interface for testing
 // This enables comprehensive unit testing without external dependencies
 type MockClient struct {
+	// mu protects all fields for thread-safe concurrent access
+	mu sync.RWMutex
+
 	// Issues maps issue keys to Issue objects for testing
 	Issues map[string]*Issue
 
@@ -48,21 +52,33 @@ func NewMockClient() *MockClient {
 
 // GetIssue retrieves a mock JIRA issue by key
 func (m *MockClient) GetIssue(issueKey string) (*Issue, error) {
+	m.mu.Lock()
 	m.GetIssueCallCount++
 	m.LastRequestedIssue = issueKey
 
+	// Check for configured errors while holding lock
+	apiError := m.APIError
+	authError := m.AuthenticationError
+
+	// Get issue copy while holding lock
+	var issue *Issue
+	if existingIssue, exists := m.Issues[issueKey]; exists {
+		issue = existingIssue
+	}
+	m.mu.Unlock()
+
 	// Simulate API error if configured
-	if m.APIError != nil {
-		return nil, m.APIError
+	if apiError != nil {
+		return nil, apiError
 	}
 
 	// Simulate authentication error if configured
-	if m.AuthenticationError != nil {
-		return nil, m.AuthenticationError
+	if authError != nil {
+		return nil, authError
 	}
 
 	// Return mock issue if found
-	if issue, exists := m.Issues[issueKey]; exists {
+	if issue != nil {
 		return issue, nil
 	}
 
@@ -76,22 +92,49 @@ func (m *MockClient) GetIssue(issueKey string) (*Issue, error) {
 
 // SearchIssues simulates JQL search functionality for testing
 func (m *MockClient) SearchIssues(jql string) ([]*Issue, error) {
+	m.mu.Lock()
 	m.SearchIssuesCallCount++
 	m.LastJQLQuery = jql
 
+	// Check for configured errors while holding lock
+	jqlError := m.JQLError
+	apiError := m.APIError
+	authError := m.AuthenticationError
+
+	// Get JQL results and issues while holding lock
+	var issueKeys []string
+	var exists bool
+	if issueKeys, exists = m.JQLResults[jql]; exists {
+		// Create a copy of issue keys to avoid holding lock during issue lookup
+		issueKeysCopy := make([]string, len(issueKeys))
+		copy(issueKeysCopy, issueKeys)
+		issueKeys = issueKeysCopy
+	}
+
+	// Get copies of issues while holding lock
+	var results []*Issue
+	if exists {
+		for _, key := range issueKeys {
+			if issue, found := m.Issues[key]; found {
+				results = append(results, issue)
+			}
+		}
+	}
+	m.mu.Unlock()
+
 	// Simulate JQL-specific error if configured
-	if m.JQLError != nil {
-		return nil, m.JQLError
+	if jqlError != nil {
+		return nil, jqlError
 	}
 
 	// Simulate API error if configured
-	if m.APIError != nil {
-		return nil, m.APIError
+	if apiError != nil {
+		return nil, apiError
 	}
 
 	// Simulate authentication error if configured
-	if m.AuthenticationError != nil {
-		return nil, m.AuthenticationError
+	if authError != nil {
+		return nil, authError
 	}
 
 	// Return empty result for empty JQL
@@ -103,13 +146,7 @@ func (m *MockClient) SearchIssues(jql string) ([]*Issue, error) {
 	}
 
 	// Return configured JQL results if available
-	if issueKeys, exists := m.JQLResults[jql]; exists {
-		var results []*Issue
-		for _, key := range issueKeys {
-			if issue, found := m.Issues[key]; found {
-				results = append(results, issue)
-			}
-		}
+	if exists {
 		return results, nil
 	}
 
@@ -119,22 +156,39 @@ func (m *MockClient) SearchIssues(jql string) ([]*Issue, error) {
 
 // SearchIssuesWithPagination simulates JQL search with pagination for testing
 func (m *MockClient) SearchIssuesWithPagination(jql string, startAt, maxResults int) ([]*Issue, int, error) {
+	m.mu.Lock()
 	m.SearchIssuesWithPaginationCallCount++
 	m.LastJQLQuery = jql
 
+	// Check for configured errors while holding lock
+	jqlError := m.JQLError
+	apiError := m.APIError
+	authError := m.AuthenticationError
+
+	// Get all matching issues while holding lock
+	var allIssues []*Issue
+	if issueKeys, exists := m.JQLResults[jql]; exists {
+		for _, key := range issueKeys {
+			if issue, found := m.Issues[key]; found {
+				allIssues = append(allIssues, issue)
+			}
+		}
+	}
+	m.mu.Unlock()
+
 	// Simulate JQL-specific error if configured
-	if m.JQLError != nil {
-		return nil, 0, m.JQLError
+	if jqlError != nil {
+		return nil, 0, jqlError
 	}
 
 	// Simulate API error if configured
-	if m.APIError != nil {
-		return nil, 0, m.APIError
+	if apiError != nil {
+		return nil, 0, apiError
 	}
 
 	// Simulate authentication error if configured
-	if m.AuthenticationError != nil {
-		return nil, 0, m.AuthenticationError
+	if authError != nil {
+		return nil, 0, authError
 	}
 
 	// Return empty result for empty JQL
@@ -142,16 +196,6 @@ func (m *MockClient) SearchIssuesWithPagination(jql string, startAt, maxResults 
 		return nil, 0, &ClientError{
 			Type:    "invalid_input",
 			Message: "JQL query cannot be empty",
-		}
-	}
-
-	// Get all matching issues
-	var allIssues []*Issue
-	if issueKeys, exists := m.JQLResults[jql]; exists {
-		for _, key := range issueKeys {
-			if issue, found := m.Issues[key]; found {
-				allIssues = append(allIssues, issue)
-			}
 		}
 	}
 
@@ -173,39 +217,54 @@ func (m *MockClient) SearchIssuesWithPagination(jql string, startAt, maxResults 
 
 // Authenticate simulates authentication check
 func (m *MockClient) Authenticate() error {
-	if m.AuthenticationError != nil {
-		return m.AuthenticationError
+	m.mu.RLock()
+	authError := m.AuthenticationError
+	m.mu.RUnlock()
+
+	if authError != nil {
+		return authError
 	}
 	return nil
 }
 
 // AddIssue adds a mock issue for testing
 func (m *MockClient) AddIssue(issue *Issue) {
+	m.mu.Lock()
 	m.Issues[issue.Key] = issue
+	m.mu.Unlock()
 }
 
 // SetAuthenticationError configures the mock to return an authentication error
 func (m *MockClient) SetAuthenticationError(err error) {
+	m.mu.Lock()
 	m.AuthenticationError = err
+	m.mu.Unlock()
 }
 
 // SetAPIError configures the mock to return an API error
 func (m *MockClient) SetAPIError(err error) {
+	m.mu.Lock()
 	m.APIError = err
+	m.mu.Unlock()
 }
 
 // SetJQLError configures the mock to return a JQL-specific error
 func (m *MockClient) SetJQLError(err error) {
+	m.mu.Lock()
 	m.JQLError = err
+	m.mu.Unlock()
 }
 
 // AddJQLResult configures the mock to return specific issues for a JQL query
 func (m *MockClient) AddJQLResult(jql string, issueKeys []string) {
+	m.mu.Lock()
 	m.JQLResults[jql] = issueKeys
+	m.mu.Unlock()
 }
 
 // Reset clears all mock state for clean test setup
 func (m *MockClient) Reset() {
+	m.mu.Lock()
 	m.Issues = make(map[string]*Issue)
 	m.JQLResults = make(map[string][]string)
 	m.AuthenticationError = nil
@@ -216,6 +275,7 @@ func (m *MockClient) Reset() {
 	m.SearchIssuesWithPaginationCallCount = 0
 	m.LastRequestedIssue = ""
 	m.LastJQLQuery = ""
+	m.mu.Unlock()
 }
 
 // CreateTestIssue creates a sample issue for testing

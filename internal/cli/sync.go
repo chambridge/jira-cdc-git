@@ -14,6 +14,7 @@ import (
 	"github.com/chambrid/jira-cdc-git/pkg/config"
 	"github.com/chambrid/jira-cdc-git/pkg/git"
 	"github.com/chambrid/jira-cdc-git/pkg/links"
+	"github.com/chambrid/jira-cdc-git/pkg/profile"
 	"github.com/chambrid/jira-cdc-git/pkg/schema"
 	"github.com/chambrid/jira-cdc-git/pkg/state"
 	"github.com/spf13/cobra"
@@ -34,6 +35,7 @@ File Structure:
   {repo}/projects/{project-key}/relationships/{type}/          # Relationship links
 
 Sync Modes:
+  • Profile: --profile=my-profile (use saved profile configuration)
   • Single/Multiple Issues: --issues=PROJ-123 or --issues=PROJ-1,PROJ-2,PROJ-3
   • JQL Query: --jql="project = PROJ AND status = 'To Do'"
   • Incremental: --incremental (sync only changed issues since last sync)
@@ -43,7 +45,10 @@ Performance:
   • Default: 5 workers, 500ms rate limit (recommended for most JIRA instances)
   • High load: --concurrency=2 --rate-limit=1s (gentler on JIRA API)
   • Fast sync: --concurrency=8 --rate-limit=200ms (use carefully)`,
-	Example: `  # Sync single issue
+	Example: `  # Sync using a saved profile
+  jira-sync sync --profile=my-epic-sync
+
+  # Sync single issue
   jira-sync sync --issues=PROJ-123 --repo=./my-repo
 
   # Sync multiple issues with custom rate limiting
@@ -52,27 +57,23 @@ Performance:
   # Sync all issues in epic using JQL
   jira-sync sync --jql="Epic Link = PROJ-123" --repo=./my-repo
 
+  # Use profile with option overrides
+  jira-sync sync --profile=epic-sync --incremental --dry-run
+
   # Sync with custom concurrency for faster processing
   jira-sync sync --jql="project = PROJ AND status = 'To Do'" --repo=./my-repo --concurrency=8
-
-  # Sync to current directory with debug logging
-  jira-sync sync --issues=TEAM-456 --repo=. --log-level=debug
 
   # Gentle sync for overloaded JIRA instances
   jira-sync sync --jql="assignee = currentUser()" --repo=./issues --concurrency=2 --rate-limit=1s
 
-  # Incremental sync (only changed issues since last sync)
-  jira-sync sync --jql="project = PROJ" --repo=./my-repo --incremental
-
-  # Force full sync (ignore state, sync all issues)
-  jira-sync sync --issues=PROJ-1,PROJ-2 --repo=./my-repo --force
-
-  # Dry run incremental sync (show what would be synced)
-  jira-sync sync --jql="Epic Link = PROJ-123" --repo=./my-repo --incremental --dry-run`,
+  # Create profile for reuse
+  jira-sync profile create --template=epic-all-issues --name=my-epic --epic_key=PROJ-123 --repository=./repo`,
 	RunE: runSync,
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
+	// Get flags
+	profileName, _ := cmd.Flags().GetString("profile")
 	issuesArg, _ := cmd.Flags().GetString("issues")
 	jqlArg, _ := cmd.Flags().GetString("jql")
 	repo, _ := cmd.Flags().GetString("repo")
@@ -81,6 +82,16 @@ func runSync(cmd *cobra.Command, args []string) error {
 	incremental, _ := cmd.Flags().GetBool("incremental")
 	force, _ := cmd.Flags().GetBool("force")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	// Handle profile-based sync
+	if profileName != "" {
+		return runProfileSync(cmd, profileName)
+	}
+
+	// Validate that repo is provided when not using profile
+	if repo == "" {
+		return fmt.Errorf("--repo flag is required when not using --profile")
+	}
 
 	// Validate mutual exclusivity of --issues and --jql
 	if issuesArg != "" && jqlArg != "" {
@@ -484,17 +495,242 @@ func init() {
 	rootCmd.AddCommand(syncCmd)
 
 	// Sync command flags
+	syncCmd.Flags().StringP("profile", "p", "", "Use saved profile for sync configuration")
 	syncCmd.Flags().StringP("issues", "i", "", "JIRA issue key(s) - single issue (PROJ-123) or comma-separated list (PROJ-1,PROJ-2)")
 	syncCmd.Flags().StringP("jql", "j", "", "JQL query to find issues (e.g., 'project = PROJ AND status = \"To Do\"')")
-	syncCmd.Flags().StringP("repo", "r", "", "Target Git repository path - will be created if it doesn't exist (required)")
-	syncCmd.Flags().IntP("concurrency", "c", 5, "Parallel workers for batch processing (1-10, default: 5, recommended: 2-5 for most instances)")
-	syncCmd.Flags().String("rate-limit", "500ms", "API call delay between requests (default: 500ms, examples: 100ms, 1s, 2s) - increase for busy JIRA instances")
+	syncCmd.Flags().StringP("repo", "r", "", "Target Git repository path - will be created if it doesn't exist (required when not using profile)")
+	syncCmd.Flags().IntP("concurrency", "c", 0, "Parallel workers for batch processing (1-10, overrides profile setting)")
+	syncCmd.Flags().String("rate-limit", "", "API call delay between requests (examples: 100ms, 1s, 2s, overrides profile setting)")
 
 	// Incremental sync flags
 	syncCmd.Flags().Bool("incremental", false, "Perform incremental sync (only sync changed issues since last sync)")
 	syncCmd.Flags().Bool("force", false, "Force full sync (ignore state and sync all issues)")
 	syncCmd.Flags().Bool("dry-run", false, "Show what would be synced without making changes")
 
-	// Mark required flags
-	_ = syncCmd.MarkFlagRequired("repo")
+	// Note: --repo is required when not using --profile, but we validate this in the command function
+}
+
+// runProfileSync executes sync using a saved profile
+func runProfileSync(cmd *cobra.Command, profileName string) error {
+	// Load profile
+	fmt.Printf("📋 Loading profile '%s'...\n", profileName)
+	manager := profile.NewFileProfileManager(".", "yaml")
+
+	p, err := manager.GetProfile(profileName)
+	if err != nil {
+		return fmt.Errorf("failed to load profile '%s': %w", profileName, err)
+	}
+
+	// Apply command-line overrides to profile settings
+	overriddenProfile := *p // Create a copy
+
+	// Override repository if provided
+	if cmd.Flags().Changed("repo") {
+		repo, _ := cmd.Flags().GetString("repo")
+		overriddenProfile.Repository = repo
+		fmt.Printf("🔧 Overriding repository: %s\n", repo)
+	}
+
+	// Override concurrency if provided
+	if cmd.Flags().Changed("concurrency") {
+		concurrency, _ := cmd.Flags().GetInt("concurrency")
+		overriddenProfile.Options.Concurrency = concurrency
+		fmt.Printf("🔧 Overriding concurrency: %d\n", concurrency)
+	}
+
+	// Override rate limit if provided
+	if cmd.Flags().Changed("rate-limit") {
+		rateLimit, _ := cmd.Flags().GetString("rate-limit")
+		overriddenProfile.Options.RateLimit = rateLimit
+		fmt.Printf("🔧 Overriding rate limit: %s\n", rateLimit)
+	}
+
+	// Override incremental flag if provided
+	if cmd.Flags().Changed("incremental") {
+		incremental, _ := cmd.Flags().GetBool("incremental")
+		overriddenProfile.Options.Incremental = incremental
+		fmt.Printf("🔧 Overriding incremental: %t\n", incremental)
+	}
+
+	// Override force flag if provided
+	if cmd.Flags().Changed("force") {
+		force, _ := cmd.Flags().GetBool("force")
+		overriddenProfile.Options.Force = force
+		fmt.Printf("🔧 Overriding force: %t\n", force)
+	}
+
+	// Override dry-run flag if provided
+	if cmd.Flags().Changed("dry-run") {
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		overriddenProfile.Options.DryRun = dryRun
+		fmt.Printf("🔧 Overriding dry-run: %t\n", dryRun)
+	}
+
+	// Show profile info
+	fmt.Printf("📋 Profile: %s\n", overriddenProfile.Name)
+	fmt.Printf("📁 Repository: %s\n", overriddenProfile.Repository)
+
+	syncType := "unknown"
+	if overriddenProfile.EpicKey != "" {
+		syncType = "EPIC"
+		fmt.Printf("🎯 EPIC: %s\n", overriddenProfile.EpicKey)
+	} else if overriddenProfile.JQL != "" {
+		syncType = "JQL"
+		fmt.Printf("🔍 JQL: %s\n", overriddenProfile.JQL)
+	} else if len(overriddenProfile.IssueKeys) > 0 {
+		syncType = "Issues"
+		fmt.Printf("📝 Issues: %s\n", strings.Join(overriddenProfile.IssueKeys, ", "))
+	}
+
+	fmt.Printf("⚙️  Options: concurrency=%d, rate-limit=%s, incremental=%t, force=%t, dry-run=%t\n",
+		overriddenProfile.Options.Concurrency,
+		overriddenProfile.Options.RateLimit,
+		overriddenProfile.Options.Incremental,
+		overriddenProfile.Options.Force,
+		overriddenProfile.Options.DryRun)
+
+	// Validate profile after overrides
+	validation, err := manager.ValidateProfile(&overriddenProfile)
+	if err != nil {
+		return fmt.Errorf("failed to validate profile: %w", err)
+	}
+	if !validation.Valid {
+		return fmt.Errorf("profile validation failed: %s", strings.Join(validation.Errors, "; "))
+	}
+
+	// Execute sync based on profile configuration
+	startTime := time.Now()
+	var syncErr error
+
+	if overriddenProfile.EpicKey != "" {
+		// EPIC-based sync - delegate to JQL with epic expansion
+		// For now, convert to JQL query (in future, could integrate with EPIC analyzer)
+		epicJQL := fmt.Sprintf("\"Epic Link\" = %s", overriddenProfile.EpicKey)
+		syncErr = executeProfileSync(&overriddenProfile, epicJQL, syncType)
+	} else if overriddenProfile.JQL != "" {
+		// JQL-based sync
+		syncErr = executeProfileSync(&overriddenProfile, overriddenProfile.JQL, syncType)
+	} else if len(overriddenProfile.IssueKeys) > 0 {
+		// Issue list sync - convert to issues argument and execute
+		issuesArg := strings.Join(overriddenProfile.IssueKeys, ",")
+		syncErr = executeProfileSyncWithIssues(&overriddenProfile, issuesArg, syncType)
+	} else {
+		return fmt.Errorf("profile does not specify any sync mode (JQL, EPIC, or issue keys)")
+	}
+
+	// Record usage statistics
+	duration := time.Since(startTime)
+	success := syncErr == nil
+
+	if err := manager.RecordUsage(profileName, duration.Milliseconds(), success); err != nil {
+		fmt.Printf("⚠️  Warning: failed to record profile usage: %v\n", err)
+	}
+
+	if syncErr != nil {
+		return fmt.Errorf("profile sync failed: %w", syncErr)
+	}
+
+	fmt.Printf("✅ Profile sync completed successfully in %v\n", duration)
+	return nil
+}
+
+// executeProfileSync executes a JQL-based sync using profile configuration
+func executeProfileSync(p *profile.Profile, jql string, syncType string) error {
+	// This function replicates the sync logic but uses profile configuration
+	// For brevity, I'll implement a simplified version that delegates to the existing logic
+
+	// Load configuration
+	configLoader := config.NewDotEnvLoader()
+	cfg, err := configLoader.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	// Apply rate limit from profile
+	if p.Options.RateLimit != "" {
+		if rateLimitDuration, err := time.ParseDuration(p.Options.RateLimit); err == nil {
+			cfg.RateLimitDelay = rateLimitDuration
+		}
+	}
+
+	// Initialize JIRA client
+	fmt.Println("🔗 Connecting to JIRA...")
+	jiraClient, err := client.NewClient(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create JIRA client: %w", err)
+	}
+
+	if err := jiraClient.Authenticate(); err != nil {
+		return fmt.Errorf("failed to authenticate with JIRA: %w", err)
+	}
+
+	// Initialize Git repository
+	fmt.Printf("📁 Preparing Git repository at %s...\n", p.Repository)
+	gitRepo := git.NewGitRepository("JIRA CDC Git Sync", "jira-sync@automated.local")
+
+	if err := gitRepo.Initialize(p.Repository); err != nil {
+		return fmt.Errorf("failed to initialize Git repository: %w", err)
+	}
+
+	if err := gitRepo.ValidateWorkingTree(p.Repository); err != nil {
+		return fmt.Errorf("git repository validation failed: %w", err)
+	}
+
+	// Initialize sync components
+	fileWriter := schema.NewYAMLFileWriter()
+	linkManager := links.NewSymbolicLinkManager()
+
+	// Execute sync based on profile options
+	var result *sync.BatchResult
+
+	if p.Options.Incremental || p.Options.Force || p.Options.DryRun {
+		// Use incremental engine
+		stateManager := state.NewFileStateManager(state.FormatYAML)
+		incrementalEngine := sync.NewIncrementalBatchSyncEngine(jiraClient, fileWriter, gitRepo, linkManager, stateManager, p.Options.Concurrency)
+
+		incrementalOptions := sync.IncrementalSyncOptions{
+			Force:           p.Options.Force,
+			DryRun:          p.Options.DryRun,
+			IncludeNew:      true,
+			IncludeModified: true,
+		}
+
+		fmt.Printf("🔄 %s sync using JQL: %s\n", syncType, jql)
+		result, err = incrementalEngine.SyncJQLIncremental(context.Background(), jql, p.Repository, incrementalOptions)
+	} else {
+		// Use regular batch engine
+		batchEngine := sync.NewBatchSyncEngine(jiraClient, fileWriter, gitRepo, linkManager, p.Options.Concurrency)
+		fmt.Printf("📊 %s sync using JQL: %s\n", syncType, jql)
+		result, err = batchEngine.SyncJQL(context.Background(), jql, p.Repository)
+	}
+
+	if err != nil {
+		return fmt.Errorf("sync failed: %w", err)
+	}
+
+	// Show results
+	fmt.Printf("📊 Sync Results:\n")
+	fmt.Printf("  • Total Issues: %d\n", result.TotalIssues)
+	fmt.Printf("  • Successful: %d\n", result.SuccessfulSync)
+	fmt.Printf("  • Failed: %d\n", result.FailedSync)
+	fmt.Printf("  • Duration: %v\n", result.Duration)
+
+	return nil
+}
+
+// executeProfileSyncWithIssues executes an issue-list-based sync using profile configuration
+func executeProfileSyncWithIssues(p *profile.Profile, issuesArg string, syncType string) error {
+	// Similar to executeProfileSync but for issue lists
+	// This would parse the issues and call the appropriate sync method
+	// For now, converting to JQL as a simplified implementation
+
+	issues := strings.Split(issuesArg, ",")
+	for i, issue := range issues {
+		issues[i] = strings.TrimSpace(issue)
+	}
+
+	// Convert issue list to JQL
+	jql := fmt.Sprintf("key in (%s)", strings.Join(issues, ","))
+
+	return executeProfileSync(p, jql, syncType)
 }

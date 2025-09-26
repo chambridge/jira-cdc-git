@@ -67,9 +67,18 @@ deployments/
 ### Testing Strategy
 
 - **Unit Tests**: Test individual components in isolation
-- **Integration Tests**: Test component interactions
-- **Mock Interfaces**: Use interfaces for easy mocking
-- **Coverage**: Maintain >90% test coverage
+- **Integration Tests**: Test component interactions with comprehensive v0.3.0 end-to-end workflows
+- **Performance Tests**: Benchmarking for large datasets (50-1000 issues) with memory usage validation
+- **Mock Interfaces**: Use interfaces for easy mocking with thread-safe MockClient implementation
+- **Race Detection**: Comprehensive concurrency testing with `make test-race`
+- **Coverage**: Maintain >90% test coverage with 400+ tests across all components
+- **Always Working Code**: Both `make build` and `make test` must pass reliably
+
+### Test Execution Targets
+
+- **`make test`**: Run all tests without race detection (recommended for development)
+- **`make test-race`**: Run core functionality tests with race detection (skips performance tests)
+- **`make test-coverage`**: Generate detailed coverage reports
 
 ### Configuration Management
 
