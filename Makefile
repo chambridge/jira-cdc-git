@@ -3,8 +3,9 @@
 
 # Build configuration
 BINARY_NAME=jira-sync
+API_BINARY_NAME=api-server
 DOCKER_IMAGE=jira-cdc-git
-VERSION?=v0.1.0
+VERSION?=v0.4.0
 LDFLAGS=-ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
 
 # Container runtime configuration (prefer podman, fallback to docker)
@@ -23,6 +24,7 @@ GOLINT=golangci-lint
 # Directories
 BUILD_DIR=./build
 CMD_DIR=./cmd/jira-sync
+API_CMD_DIR=./cmd/api-server
 COVERAGE_DIR=./coverage
 
 # Git information for build metadata
@@ -31,14 +33,14 @@ DATE=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Default target
 .PHONY: all
-all: clean deps lint test build
+all: clean deps lint test build build-api
 
 # Development workflow targets
 .PHONY: dev
-dev: deps lint test build run
+dev: deps lint test build build-api run
 
 .PHONY: quick
-quick: test build
+quick: test build build-api
 
 # Dependency management
 .PHONY: deps
@@ -110,23 +112,32 @@ build: fmt lint clean-build
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
 
+.PHONY: build-api
+build-api: clean-build
+	@echo "🔨 Building $(API_BINARY_NAME)..."
+	mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(API_BINARY_NAME) $(API_CMD_DIR)
+
 .PHONY: build-linux
 build-linux: clean-build
 	@echo "🐧 Building for Linux..."
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 $(CMD_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(API_BINARY_NAME)-linux-amd64 $(API_CMD_DIR)
 
 .PHONY: build-darwin
 build-darwin: clean-build
 	@echo "🍎 Building for macOS..."
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 $(CMD_DIR)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(API_BINARY_NAME)-darwin-amd64 $(API_CMD_DIR)
 
 .PHONY: build-windows
 build-windows: clean-build
 	@echo "🪟 Building for Windows..."
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe $(CMD_DIR)
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(API_BINARY_NAME)-windows-amd64.exe $(API_CMD_DIR)
 
 .PHONY: build-all
 build-all: build-linux build-darwin build-windows
@@ -190,6 +201,11 @@ k8s-undeploy:
 run: build
 	@echo "🚀 Running $(BINARY_NAME)..."
 	./$(BUILD_DIR)/$(BINARY_NAME) --help
+
+.PHONY: run-api
+run-api: build-api
+	@echo "🚀 Starting API server..."
+	./$(BUILD_DIR)/$(API_BINARY_NAME) serve --help
 
 .PHONY: run-example
 run-example: build

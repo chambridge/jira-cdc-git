@@ -84,8 +84,8 @@ type JobResult struct {
 	ProcessedFiles  []string `json:"processed_files,omitempty"`
 
 	// Error information
-	ErrorMessage string   `json:"error_message,omitempty"`
-	Errors       []string `json:"errors,omitempty"`
+	ErrorMessage string              `json:"error_message,omitempty"`
+	Errors       []JobExecutionError `json:"errors,omitempty"`
 
 	// Kubernetes information
 	PodName       string `json:"pod_name,omitempty"`
@@ -191,4 +191,12 @@ type KubernetesJobInfo struct {
 	Active            int32                  `json:"active"`
 	Succeeded         int32                  `json:"succeeded"`
 	Failed            int32                  `json:"failed"`
+}
+
+// JobExecutionError represents an error that occurred during job execution
+type JobExecutionError struct {
+	IssueKey string `json:"issue_key,omitempty"`
+	Step     string `json:"step"`
+	Message  string `json:"message"`
+	Time     string `json:"time"`
 }
