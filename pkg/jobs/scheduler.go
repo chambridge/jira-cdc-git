@@ -421,7 +421,7 @@ func (s *KubernetesJobScheduler) generateEnvironmentVars(config *SyncJobConfig) 
 		},
 		{
 			Name:  "LOG_LEVEL",
-			Value: "INFO",
+			Value: "info",
 		},
 	}
 

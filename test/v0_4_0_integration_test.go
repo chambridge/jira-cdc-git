@@ -465,8 +465,8 @@ func (r *RealisticJobManager) GetJob(ctx context.Context, jobID string) (*jobs.J
 	}
 	return nil, jobs.NewJobError(jobID, "not_found", "Job not found")
 }
-func (r *RealisticJobManager) DeleteJob(ctx context.Context, jobID string) error   { return nil }
-func (r *RealisticJobManager) CancelJob(ctx context.Context, jobID string) error   { return nil }
+func (r *RealisticJobManager) DeleteJob(ctx context.Context, jobID string) error { return nil }
+func (r *RealisticJobManager) CancelJob(ctx context.Context, jobID string) error { return nil }
 func (r *RealisticJobManager) GetJobLogs(ctx context.Context, jobID string) (string, error) {
 	return "", nil
 }

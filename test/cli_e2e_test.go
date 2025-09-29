@@ -110,8 +110,8 @@ func TestCLI_BuildSystem_Integration(t *testing.T) {
 	}
 
 	versionStr := string(versionOutput)
-	if !strings.Contains(versionStr, "v0.1.0") {
-		t.Errorf("Expected version output to contain 'v0.1.0', got: %s", versionStr)
+	if !strings.Contains(versionStr, "v0.4.0") {
+		t.Errorf("Expected version output to contain 'v0.4.0', got: %s", versionStr)
 	}
 }
 
