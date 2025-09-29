@@ -145,7 +145,7 @@ func (m *FileJobTemplateManager) createSingleJobTemplate() *JobTemplate {
 					Containers: []corev1.Container{
 						{
 							Name:            "sync-worker",
-							Image:           "jira-sync:latest",
+							Image:           "localhost/jira-cdc-git:latest",
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Command:         []string{"./jira-sync"},
 							Args:            []string{"sync"}, // Will be overridden by scheduler
@@ -199,8 +199,19 @@ func (m *FileJobTemplateManager) createSingleJobTemplate() *JobTemplate {
 									},
 								},
 								{
+									Name: "JIRA_EMAIL",
+									ValueFrom: &corev1.EnvVarSource{
+										SecretKeyRef: &corev1.SecretKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "jira-credentials",
+											},
+											Key: "email",
+										},
+									},
+								},
+								{
 									Name:  "LOG_LEVEL",
-									Value: "INFO",
+									Value: "info",
 								},
 								{
 									Name:  "SPIKE_SAFE_MODE",
@@ -288,7 +299,7 @@ func (m *FileJobTemplateManager) createBatchJobTemplate() *JobTemplate {
 					Containers: []corev1.Container{
 						{
 							Name:            "batch-sync-worker",
-							Image:           "jira-sync:latest",
+							Image:           "localhost/jira-cdc-git:latest",
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Command:         []string{"./jira-sync"},
 							Args:            []string{"sync"}, // Will be overridden by scheduler
@@ -346,8 +357,19 @@ func (m *FileJobTemplateManager) createBatchJobTemplate() *JobTemplate {
 									},
 								},
 								{
+									Name: "JIRA_EMAIL",
+									ValueFrom: &corev1.EnvVarSource{
+										SecretKeyRef: &corev1.SecretKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "jira-credentials",
+											},
+											Key: "email",
+										},
+									},
+								},
+								{
 									Name:  "LOG_LEVEL",
-									Value: "INFO",
+									Value: "info",
 								},
 								{
 									Name:  "SPIKE_SAFE_MODE",

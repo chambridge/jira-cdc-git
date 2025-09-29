@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: jira-sync-v040
+
+resources:
+- namespace.yaml
+- rbac.yaml
+- configmap.yaml
+- pvc.yaml
+- deployment.yaml
+- service.yaml
+
+# Images that will be updated during build
+images:
+- name: jira-sync-api
+  newTag: latest
+
+# Add common labels to all resources
+commonLabels:
+  app.kubernetes.io/name: jira-sync
+  app.kubernetes.io/version: v0.4.0
+  app.kubernetes.io/component: api-server
+  app.kubernetes.io/part-of: jira-sync-system
