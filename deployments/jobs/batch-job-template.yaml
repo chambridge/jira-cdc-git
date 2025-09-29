@@ -1,0 +1,90 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: jira-batch-sync-${SYNC_ID}
+  labels:
+    app: jira-sync
+    sync-type: batch
+    sync-id: ${SYNC_ID}
+    managed-by: jira-sync-scheduler
+spec:
+  parallelism: ${PARALLELISM:-2}
+  completions: ${COMPLETIONS:-1}
+  backoffLimit: 3
+  activeDeadlineSeconds: 1800  # 30 minutes for batch operations
+  template:
+    metadata:
+      labels:
+        app: jira-sync
+        sync-type: batch
+        sync-id: ${SYNC_ID}
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: batch-sync-worker
+        image: jira-sync:latest
+        imagePullPolicy: IfNotPresent
+        command: ["./jira-sync"]
+        args:
+        - "sync"
+        - "--issues=${TARGET}"
+        - "--repo=/workspace/repo"
+        - "--concurrency=${CONCURRENCY:-2}"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        volumeMounts:
+        - name: git-repo
+          mountPath: /workspace/repo
+        - name: config
+          mountPath: /etc/jira-sync
+          readOnly: true
+        - name: credentials
+          mountPath: /etc/jira-sync/secrets
+          readOnly: true
+        - name: shared-state
+          mountPath: /workspace/shared
+        env:
+        - name: JIRA_BASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: jira-credentials
+              key: base-url
+        - name: JIRA_PAT
+          valueFrom:
+            secretKeyRef:
+              name: jira-credentials
+              key: token
+        - name: SYNC_JOB_ID
+          value: ${SYNC_ID}
+        - name: WORKER_ID
+          value: "${JOB_COMPLETION_INDEX:-0}"
+        - name: TOTAL_WORKERS
+          value: "${PARALLELISM:-2}"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: SPIKE_SAFE_MODE
+          value: "true"
+        - name: RATE_LIMIT_PER_MINUTE
+          value: "30"  # Conservative rate limiting
+      volumes:
+      - name: git-repo
+        persistentVolumeClaim:
+          claimName: git-repo-pvc
+      - name: config
+        configMap:
+          name: jira-sync-config
+      - name: credentials
+        secret:
+          secretName: jira-credentials
+          defaultMode: 0400
+      - name: shared-state
+        emptyDir: {}

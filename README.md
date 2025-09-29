@@ -125,12 +125,13 @@ deployments/          # Kubernetes manifests (ready for future)
 ## Current Release: v0.3.0
 
 ### Technology Stack
-- **Language**: Go 1.21+
-- **Authentication**: JIRA Personal Access Token (PAT)
+- **Language**: Go 1.24+
+- **Authentication**: JIRA Personal Access Token (PAT) with email
 - **Git Operations**: Local repository operations with conventional commits
 - **Configuration**: Environment variables via .env file
-- **Interface**: Advanced CLI tool with batch operations, JQL support, and incremental sync
+- **Interface**: Advanced CLI tool with profile management, batch operations, JQL support, and incremental sync
 - **State Management**: File-based sync state tracking with YAML/JSON persistence
+- **Profile System**: Template-based configuration management with export/import capabilities
 - **JQL Integration**: Smart query building with template system and EPIC analysis
 - **Architecture**: Clean interface-based design ready for microservices evolution
 - **Testing**: Comprehensive end-to-end testing with performance benchmarking and always-working code validation
@@ -138,7 +139,7 @@ deployments/          # Kubernetes manifests (ready for future)
 ### Quick Start (v0.3.0)
 
 1. **Prerequisites**
-   - Go 1.21+ installed
+   - Go 1.24+ installed
    - Git repository initialized
    - JIRA Personal Access Token
 
@@ -146,6 +147,7 @@ deployments/          # Kubernetes manifests (ready for future)
    Create `.env` file:
    ```bash
    JIRA_BASE_URL=https://your-domain.atlassian.net
+   JIRA_EMAIL=your-email@company.com
    JIRA_PAT=your-personal-access-token
    ```
 
@@ -172,6 +174,10 @@ deployments/          # Kubernetes manifests (ready for future)
    # Dry run to preview changes without syncing
    ./build/jira-sync sync --jql="project = PROJ" --repo=/path/to/repo --dry-run
    
+   # Create and use profiles for common workflows
+   ./build/jira-sync profile create --template=epic-all-issues --name=my-epic --epic_key=PROJ-123 --repository=/path/to/repo
+   ./build/jira-sync sync --profile=my-epic --incremental
+   
    # Batch sync with custom concurrency
    ./build/jira-sync sync --jql="Epic Link = PROJ-123" --repo=/path/to/repo --concurrency=8
    ```
@@ -190,20 +196,25 @@ deployments/          # Kubernetes manifests (ready for future)
 - **EPIC Analysis**: Intelligent EPIC discovery and hierarchy mapping with 85%+ test coverage
 - **Smart JQL Building**: Template-based query generation with 5 built-in patterns
 - **Query Preview**: Show issue counts and execution time before sync operations
-- **Saved Queries**: Persistent query favorites with usage tracking
+- **Profile Management**: Save and reuse sync configurations with templates (epic-all-issues, epic-stories-only, project-active-issues, my-current-sprint, recent-updates)
+- **Profile Export/Import**: Share team sync configurations via YAML files
 - **State Recovery**: Robust handling of interrupted syncs with validation and backup
 - **Comprehensive Testing**: 400+ tests with comprehensive end-to-end workflow validation, performance benchmarking, and thread-safe concurrency testing
 
-### Enhanced JQL Capabilities (v0.2.0+)
-- **EPIC Query Building**: Automatic expansion of `--epic=PROJ-123` to complete JQL
-- **Template System**: 5 built-in templates for common patterns (epic-all-issues, epic-stories-only, project-active-issues, my-current-sprint, recent-updates)
+### Profile and JQL Capabilities
+- **Profile Templates**: 5 built-in templates for common patterns (epic-all-issues, epic-stories-only, project-active-issues, my-current-sprint, recent-updates)
+- **Profile Management**: Create, update, delete, list, show, export, and import sync profiles
+- **Template Variables**: Dynamic profile creation with variable substitution (epic_key, repository, etc.)
+- **Usage Tracking**: Automatic recording of profile usage statistics
+- **Team Sharing**: Export/import profiles for team collaboration
+- **EPIC Query Building**: Intelligent EPIC discovery and JQL generation
 - **Query Validation**: Syntax checking with intelligent suggestions
 - **Query Optimization**: Performance improvements for large datasets
 - **Query Preview**: Fast preview showing issue counts, project breakdown, and execution time
-- **Saved Queries**: JSON-based persistence with favorites and usage tracking
 
 ### Upcoming Releases
-- **v0.4.0**: API server and Kubernetes job scheduling  
+- **v0.4.0**: API server and Kubernetes job scheduling infrastructure
+- **v0.4.1**: Kubernetes operator and real-time change detection
 - **v0.5.0**: Web interface and management dashboard
 
 ## Documentation
