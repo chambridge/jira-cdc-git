@@ -12,10 +12,22 @@ import (
 // The core functionality is tested in TestCLI_EndToEnd_MockIntegration
 
 func TestCLI_EndToEnd_MockIntegration(t *testing.T) {
-	// Get absolute path to project root
-	projectRoot, err := filepath.Abs("..")
+	// Get absolute path to project root - handle both direct test execution and make test
+	wd, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("Failed to get project root: %v", err)
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	var projectRoot string
+	if filepath.Base(wd) == "test" {
+		// Running from test/ directory (direct test execution)
+		projectRoot, err = filepath.Abs("..")
+		if err != nil {
+			t.Fatalf("Failed to get project root: %v", err)
+		}
+	} else {
+		// Running from project root (make test)
+		projectRoot = wd
 	}
 
 	// Create temporary directory for test repository

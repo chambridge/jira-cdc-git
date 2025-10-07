@@ -1,0 +1,221 @@
+# Invalid JIRASync test cases - All should be REJECTED by the CRD schema
+---
+# INVALID Test Case 1: Missing required fields
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-missing-fields
+  namespace: default
+spec:
+  syncType: single
+  # Missing target and destination - should fail validation
+---
+# INVALID Test Case 2: Invalid syncType
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-invalid-synctype
+  namespace: default
+spec:
+  syncType: invalid_type  # Not in enum
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+---
+# INVALID Test Case 3: Multiple target types set (violates oneOf)
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-multiple-targets
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+    jqlQuery: "project = PROJ"  # Can't have both
+  destination:
+    repository: "https://github.com/example/repo.git"
+---
+# INVALID Test Case 4: Invalid issue key format
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-invalid-issue-key
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["invalid-key", "PROJ-0", "123-ABC"]  # Invalid formats
+  destination:
+    repository: "https://github.com/example/repo.git"
+---
+# INVALID Test Case 5: Malicious repository URL
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-malicious-repo
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "file:///etc/passwd"  # Should be blocked
+---
+# INVALID Test Case 6: Directory traversal in path
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-directory-traversal
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+    path: "../../etc/passwd"  # Should be blocked
+---
+# INVALID Test Case 7: Empty issue keys array
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-empty-issues
+  namespace: default
+spec:
+  syncType: batch
+  target:
+    issueKeys: []  # Empty array should fail minItems: 1
+  destination:
+    repository: "https://github.com/example/repo.git"
+---
+# INVALID Test Case 8: Too many issue keys (exceeds limit)
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-too-many-issues
+  namespace: default
+spec:
+  syncType: batch
+  target:
+    issueKeys: # 101 items (exceeds maxItems: 100)
+    - "PROJ-1"
+    - "PROJ-2"
+    # ... would need 101 items here
+  destination:
+    repository: "https://github.com/example/repo.git"
+---
+# INVALID Test Case 9: Invalid cron schedule
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-invalid-cron
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+  schedule: "invalid cron format"  # Should fail pattern validation
+---
+# INVALID Test Case 10: Invalid priority value
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-invalid-priority
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+  priority: "critical"  # Not in enum [low, normal, high, urgent]
+---
+# INVALID Test Case 11: Timeout out of bounds
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-invalid-timeout
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+  timeout: 10800  # 3 hours, exceeds maximum: 7200 (2 hours)
+---
+# INVALID Test Case 12: Invalid branch name format
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-invalid-branch
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+    branch: "branch with spaces and/invalid..chars"  # Should fail pattern
+---
+# INVALID Test Case 13: JQL with potentially dangerous characters
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-dangerous-jql
+  namespace: default
+spec:
+  syncType: jql
+  target:
+    jqlQuery: "project = PROJ; DROP TABLE users; --"  # Should fail pattern
+  destination:
+    repository: "https://github.com/example/repo.git"
+---
+# INVALID Test Case 14: Invalid retry policy values
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-invalid-retry
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+  retryPolicy:
+    maxRetries: 15  # Exceeds maximum: 10
+    backoffMultiplier: 15.0  # Exceeds maximum: 10.0
+    initialDelay: 4000  # Exceeds maximum: 3600
+---
+# INVALID Test Case 15: Invalid label values
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-invalid-labels
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+  labels:
+    "invalid label name with spaces": "value"  # Should fail pattern
+    "too-long-label-name-that-exceeds-the-sixty-three-character-limit-set": "value"  # Should fail maxLength
+---
+# INVALID Test Case 16: No target specified for JQL sync type
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-jql-no-query
+  namespace: default
+spec:
+  syncType: jql
+  target: {}  # Missing jqlQuery for jql syncType
+  destination:
+    repository: "https://github.com/example/repo.git"

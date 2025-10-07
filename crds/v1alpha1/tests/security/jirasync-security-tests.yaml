@@ -1,0 +1,208 @@
+# Security test cases for JIRASync CRD - All should be REJECTED for security reasons
+---
+# SECURITY Test Case 1: Local file URL attack
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-local-file
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "file:///etc/passwd"  # Local file access attempt
+---
+# SECURITY Test Case 2: JavaScript URL injection
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-javascript
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "javascript:alert('XSS')"  # JavaScript injection
+---
+# SECURITY Test Case 3: Directory traversal attack
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-traversal
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+    path: "../../../etc/passwd"  # Directory traversal
+---
+# SECURITY Test Case 4: SQL injection in JQL
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-sql-injection
+  namespace: default
+spec:
+  syncType: jql
+  target:
+    jqlQuery: "project = PROJ'; DROP TABLE issues; --"  # SQL injection attempt
+  destination:
+    repository: "https://github.com/example/repo.git"
+---
+# SECURITY Test Case 5: Command injection in branch name
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-command-injection
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+    branch: "main; rm -rf /"  # Command injection attempt
+---
+# SECURITY Test Case 6: Null byte injection
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-null-byte
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+    path: "/path\x00/../../etc/passwd"  # Null byte injection
+---
+# SECURITY Test Case 7: Control character injection
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-control-chars
+  namespace: default
+spec:
+  syncType: jql
+  target:
+    jqlQuery: "project = PROJ\r\n\x1b[31mMalicious"  # Control characters
+  destination:
+    repository: "https://github.com/example/repo.git"
+---
+# SECURITY Test Case 8: Unicode normalization attack
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-unicode
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+    path: "/path/\u002e\u002e\u002f\u002e\u002e\u002fetc"  # Unicode encoded ../..
+---
+# SECURITY Test Case 9: FTP protocol attempt
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-ftp
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "ftp://malicious.com/repo"  # FTP protocol (not allowed)
+---
+# SECURITY Test Case 10: Data URI scheme
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-data-uri
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "data:text/html,<script>alert('XSS')</script>"  # Data URI
+---
+# SECURITY Test Case 11: Long string DoS attack
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-long-string
+  namespace: default
+spec:
+  syncType: jql
+  target:
+    # This would be a 2000+ character string to test length limits
+    jqlQuery: "project = PROJ AND summary ~ 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'"
+  destination:
+    repository: "https://github.com/example/repo.git"
+---
+# SECURITY Test Case 12: Label injection attack
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-label-injection
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+  labels:
+    "normal-label": "$(rm -rf /)"  # Command injection in label value
+    "../../../etc": "passwd"  # Path traversal in label key
+---
+# SECURITY Test Case 13: Issue key injection
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-issue-injection
+  namespace: default
+spec:
+  syncType: batch
+  target:
+    issueKeys: 
+    - "PROJ-123; cat /etc/passwd"  # Command injection
+    - "PROJ-124\nmalicious-command"  # Newline injection
+    - "PROJ-125\x00hidden"  # Null byte injection
+  destination:
+    repository: "https://github.com/example/repo.git"
+---
+# SECURITY Test Case 14: Schedule injection attack
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-schedule-injection
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+  schedule: "0 0 * * *; rm -rf /"  # Command injection in cron
+---
+# SECURITY Test Case 15: HTTP URL with malicious host
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: security-test-http-url
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "http://malicious.com/repo.git"  # HTTP not HTTPS (insecure)

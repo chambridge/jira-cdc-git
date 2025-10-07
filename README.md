@@ -214,7 +214,8 @@ deployments/          # Kubernetes manifests (ready for future)
 
 ### Upcoming Releases
 - **v0.4.0**: API server and Kubernetes job scheduling infrastructure
-- **v0.4.1**: Kubernetes operator and real-time change detection
+- **v0.4.1**: Kubernetes operator and CRD management
+- **v0.4.2**: Real-time change detection and webhook integration
 - **v0.5.0**: Web interface and management dashboard
 
 ## Documentation

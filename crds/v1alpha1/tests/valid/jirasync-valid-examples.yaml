@@ -1,0 +1,139 @@
+# Valid JIRASync test cases - All should be accepted by the CRD schema
+---
+# Test Case 1: Simple single issue sync
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-single-issue
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["PROJ-123"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+    branch: "main"
+    path: "/"
+---
+# Test Case 2: Batch sync with multiple issues
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-batch-sync
+  namespace: default
+spec:
+  syncType: batch
+  target:
+    issueKeys: ["PROJ-1", "PROJ-2", "PROJ-3"]
+  destination:
+    repository: "https://github.com/example/repo.git"
+    branch: "feature/batch-sync"
+    path: "/issues"
+  priority: high
+  timeout: 3600
+  retryPolicy:
+    maxRetries: 5
+    backoffMultiplier: 1.5
+    initialDelay: 60
+---
+# Test Case 3: JQL query sync
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-jql-sync
+  namespace: default
+spec:
+  syncType: jql
+  target:
+    jqlQuery: "project = PROJ AND status in ('To Do', 'In Progress')"
+  destination:
+    repository: "git@github.com:example/repo.git"
+    branch: "main"
+    path: "/jql-results"
+  priority: normal
+  labels:
+    team: "engineering"
+    environment: "production"
+---
+# Test Case 4: Incremental project sync
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-incremental-sync
+  namespace: default
+spec:
+  syncType: incremental
+  target:
+    projectKey: "PROJ"
+  destination:
+    repository: "https://github.com/example/repo.git"
+  schedule: "0 */6 * * *"  # Every 6 hours
+  priority: low
+---
+# Test Case 5: Epic-focused sync with all options
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-epic-sync
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["EPIC-100"]
+  destination:
+    repository: "https://github.com/example/epic-repo.git"
+    branch: "epic-100"
+    path: "/epics/epic-100"
+  priority: urgent
+  timeout: 7200  # 2 hours
+  retryPolicy:
+    maxRetries: 10
+    backoffMultiplier: 2.0
+    initialDelay: 30
+  labels:
+    epic: "epic-100"
+    priority: "urgent"
+    team: "product"
+---
+# Test Case 6: Minimal valid configuration
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-minimal
+  namespace: default
+spec:
+  syncType: single
+  target:
+    issueKeys: ["A-1"]
+  destination:
+    repository: "https://example.com/repo.git"
+---
+# Test Case 7: Complex JQL with special characters (safe ones)
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-complex-jql
+  namespace: default
+spec:
+  syncType: jql
+  target:
+    jqlQuery: "project = PROJ AND assignee = currentUser() AND created >= -7d"
+  destination:
+    repository: "https://github.com/example/repo.git"
+    path: "/weekly-reports"
+---
+# Test Case 8: SSH repository with custom branch naming
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: test-ssh-repo
+  namespace: default
+spec:
+  syncType: batch
+  target:
+    issueKeys: ["DEVOPS-1", "DEVOPS-2"]
+  destination:
+    repository: "git@gitlab.com:company/infrastructure.git"
+    branch: "sync/devops-updates"
+    path: "/infrastructure"
+  priority: high
