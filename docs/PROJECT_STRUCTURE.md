@@ -1,62 +1,77 @@
 # Project Structure Design
 
-## Current v0.2.0 Structure
+## Current v0.4.1 Structure
 ```
 .
 ├── cmd/                    # Application entry points
-│   └── jira-sync/         # CLI application (v0.2.0)
+│   ├── jira-sync/         # CLI application
+│   │   └── main.go
+│   ├── api-server/        # REST API server (v0.4.0)
+│   │   └── main.go
+│   └── operator/          # ✅ Kubernetes operator (v0.4.1)
 │       └── main.go
 ├── pkg/                   # Public API (reusable components)
 │   ├── client/           # JIRA client interfaces and implementations
 │   ├── git/              # Git operations
 │   ├── schema/           # YAML schema and data models
 │   ├── config/           # Configuration management
-│   ├── jql/              # JQL query building and templates (v0.2.0+)
-│   ├── epic/             # EPIC analysis and discovery (v0.2.0+)
-│   └── links/            # Symbolic link management (v0.2.0+)
+│   ├── jql/              # JQL query building and templates
+│   ├── epic/             # EPIC analysis and discovery
+│   ├── links/            # Symbolic link management
+│   ├── profile/          # Profile management system
+│   └── state/            # Sync state management
 ├── internal/             # Private application code
 │   ├── cli/              # CLI-specific logic
 │   ├── sync/             # Core sync business logic with batch operations
-│   └── filesystem/       # File operations
-├── deployments/          # Kubernetes manifests (future)
+│   ├── filesystem/       # File operations
+│   ├── api/              # API server implementation (v0.4.0)
+│   └── operator/         # ✅ Operator implementation (v0.4.1)
+│       ├── controllers/  # ✅ JIRASync controller reconciliation
+│       └── types/        # ✅ CRD type definitions
+├── crds/                 # ✅ Custom Resource Definitions (v0.4.1)
+│   └── v1alpha1/         # ✅ JIRASync, JIRAProject, SyncSchedule CRDs
+├── deployments/          # Kubernetes manifests
 │   ├── cli/              # CLI container deployment
-│   ├── api/              # API server deployment (v0.3.0+)
-│   └── operator/         # Operator manifests (v0.4.0+)
+│   ├── api/              # API server deployment
+│   └── operator/         # Operator manifests
 ├── build/                # Build artifacts and scripts
 ├── docs/                 # Additional documentation
+│   └── OPERATOR.md       # ✅ Operator usage guide (v0.4.1)
 ├── specs/                # Technical interface specifications
 ├── requirements/         # Product requirements by version
 ├── releases/             # Version-specific implementation tracking
-├── test/                 # Integration tests
+├── test/                 # Integration tests and performance benchmarks
 └── scripts/              # Development and deployment scripts
 ```
 
-## Future Evolution (v0.3.0+)
+## Remaining Future Evolution (v0.4.2+)
 ```
 cmd/
-├── jira-sync/            # CLI tool with EPIC workflows
-├── api-server/           # REST API server (v0.4.0)
-├── worker/               # Kubernetes Job worker (v0.4.0)
-└── operator/             # Kubernetes operator (v0.4.0)
+├── jira-sync/            # ✅ CLI tool with EPIC workflows
+├── api-server/           # ✅ REST API server (v0.4.0)
+├── worker/               # Kubernetes Job worker (v0.4.2+)
+└── operator/             # ✅ Kubernetes operator (v0.4.1)
 
 pkg/
-├── api/                  # Shared API definitions (v0.4.0)
-├── client/               # JIRA client with search capabilities
-├── git/                  # Git operations
-├── schema/               # Data models
-├── config/               # Configuration
-├── jql/                  # JQL query building system
-├── epic/                 # EPIC analysis and discovery
-├── links/                # Symbolic link management
-├── sync/                 # Sync profiles and state management (v0.3.0)
-└── metrics/              # Observability (v0.4.0)
+├── api/                  # Shared API definitions (v0.4.2+)
+├── client/               # ✅ JIRA client with search capabilities
+├── git/                  # ✅ Git operations
+├── schema/               # ✅ Data models
+├── config/               # ✅ Configuration
+├── jql/                  # ✅ JQL query building system
+├── epic/                 # ✅ EPIC analysis and discovery
+├── links/                # ✅ Symbolic link management
+├── sync/                 # ✅ Sync profiles and state management
+├── profile/              # ✅ Profile management system
+├── state/                # ✅ State management
+└── metrics/              # Observability (v0.4.2+)
 
 internal/
-├── cli/                  # Enhanced CLI with EPIC commands
-├── server/               # API server logic (v0.4.0)
-├── worker/               # Worker service logic (v0.4.0)
-├── operator/             # Operator logic (v0.4.0)
-└── sync/                 # Batch sync engine with incremental capabilities
+├── cli/                  # ✅ Enhanced CLI with EPIC commands
+├── server/               # API server logic (v0.4.2+)
+├── worker/               # Worker service logic (v0.4.2+)
+├── operator/             # ✅ Operator logic (v0.4.1)
+└── sync/                 # ✅ Batch sync engine with incremental capabilities
 ```
 
 ## Design Principles

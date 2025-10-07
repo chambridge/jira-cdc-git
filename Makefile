@@ -4,8 +4,9 @@
 # Build configuration
 BINARY_NAME=jira-sync
 API_BINARY_NAME=api-server
+OPERATOR_BINARY_NAME=operator
 DOCKER_IMAGE=jira-cdc-git
-VERSION?=v0.4.0
+VERSION?=v0.4.1
 LDFLAGS=-ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
 
 # Container runtime configuration (prefer podman, fallback to docker)
@@ -25,6 +26,7 @@ GOLINT=golangci-lint
 BUILD_DIR=./build
 CMD_DIR=./cmd/jira-sync
 API_CMD_DIR=./cmd/api-server
+OPERATOR_CMD_DIR=./cmd/operator
 COVERAGE_DIR=./coverage
 
 # Git information for build metadata
@@ -33,7 +35,7 @@ DATE=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Default target
 .PHONY: all
-all: clean deps lint test build build-api
+all: clean deps lint test build build-api build-operator
 
 # Development workflow targets
 .PHONY: dev
@@ -100,6 +102,11 @@ test-integration:
 	@echo "🔗 Running integration tests..."
 	$(GOTEST) -v -run Integration ./test/...
 
+.PHONY: test-operator
+test-operator:
+	@echo "☸️ Running operator tests..."
+	$(GOTEST) -v ./internal/operator/...
+
 .PHONY: test-watch
 test-watch:
 	@echo "👀 Watching for changes and running tests..."
@@ -118,12 +125,19 @@ build-api: clean-build
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(API_BINARY_NAME) $(API_CMD_DIR)
 
+.PHONY: build-operator
+build-operator: clean-build
+	@echo "🔨 Building $(OPERATOR_BINARY_NAME)..."
+	mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(OPERATOR_BINARY_NAME) $(OPERATOR_CMD_DIR)
+
 .PHONY: build-linux
 build-linux: clean-build
 	@echo "🐧 Building for Linux..."
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 $(CMD_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(API_BINARY_NAME)-linux-amd64 $(API_CMD_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(OPERATOR_BINARY_NAME)-linux-amd64 $(OPERATOR_CMD_DIR)
 
 .PHONY: build-darwin
 build-darwin: clean-build
@@ -131,6 +145,7 @@ build-darwin: clean-build
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 $(CMD_DIR)
 	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(API_BINARY_NAME)-darwin-amd64 $(API_CMD_DIR)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(OPERATOR_BINARY_NAME)-darwin-amd64 $(OPERATOR_CMD_DIR)
 
 .PHONY: build-windows
 build-windows: clean-build
@@ -138,6 +153,7 @@ build-windows: clean-build
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe $(CMD_DIR)
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(API_BINARY_NAME)-windows-amd64.exe $(API_CMD_DIR)
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(OPERATOR_BINARY_NAME)-windows-amd64.exe $(OPERATOR_CMD_DIR)
 
 .PHONY: build-all
 build-all: build-linux build-darwin build-windows
@@ -206,6 +222,11 @@ run: build
 run-api: build-api
 	@echo "🚀 Starting API server..."
 	./$(BUILD_DIR)/$(API_BINARY_NAME) serve --help
+
+.PHONY: run-operator
+run-operator: build-operator
+	@echo "🚀 Starting operator..."
+	./$(BUILD_DIR)/$(OPERATOR_BINARY_NAME) --help
 
 .PHONY: run-example
 run-example: build
