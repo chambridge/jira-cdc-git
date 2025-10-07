@@ -87,7 +87,7 @@ This project follows a fast iterative delivery approach:
 The project is architected for evolution from CLI tool to full Kubernetes-native microservices:
 
 1. **Microservices Ready**:
-   - `cmd/jira-sync/` (current CLI) → Future: `cmd/api-server/`, `cmd/worker/`, `cmd/operator/`
+   - `cmd/jira-sync/` (CLI) → `cmd/api-server/`, `cmd/operator/` ✅ IMPLEMENTED
    - Each command becomes a separate containerized service
    - Shared business logic enables consistent behavior across services
 
@@ -103,9 +103,10 @@ The project is architected for evolution from CLI tool to full Kubernetes-native
 
 ### Project Structure
 ```
-cmd/                    # Application entry points (future microservices)
-├── jira-sync/         # CLI application (v0.1.0)
-└── [future: api-server/, worker/, operator/]
+cmd/                    # Application entry points
+├── jira-sync/         # CLI application
+├── api-server/        # REST API server (v0.4.0)
+└── operator/          # ✅ Kubernetes operator (v0.4.1)
 
 pkg/                   # Public, reusable components
 ├── client/           # JIRA client interfaces and implementations  
@@ -116,13 +117,21 @@ pkg/                   # Public, reusable components
 internal/             # Private application code
 ├── cli/              # CLI-specific logic
 ├── sync/             # Core sync business logic
-└── filesystem/       # File operations
+├── filesystem/       # File operations
+└── operator/         # ✅ Operator implementation (v0.4.1)
+    ├── controllers/  # ✅ JIRASync controller reconciliation
+    └── types/        # ✅ CRD type definitions
 
-deployments/          # Kubernetes manifests (ready for future)
-├── cli/, api/, operator/
+crds/                 # ✅ Custom Resource Definitions (v0.4.1)
+└── v1alpha1/         # ✅ JIRASync, JIRAProject, SyncSchedule CRDs
 ```
 
-## Current Release: v0.3.0
+## Current Release: v0.4.1 (Partial - Operator Implementation)
+
+**Status**: 🚀 IN PROGRESS - Kubernetes Operator and CRD Management
+- ✅ **JCG-025**: Custom Resource Definitions (CRDs) - COMPLETED
+- ✅ **JCG-026**: Operator Controller Core Logic - COMPLETED  
+- 🟡 **JCG-027**: API Server Integration - READY TO START
 
 ### Technology Stack
 - **Language**: Go 1.24+
@@ -133,7 +142,10 @@ deployments/          # Kubernetes manifests (ready for future)
 - **State Management**: File-based sync state tracking with YAML/JSON persistence
 - **Profile System**: Template-based configuration management with export/import capabilities
 - **JQL Integration**: Smart query building with template system and EPIC analysis
-- **Architecture**: Clean interface-based design ready for microservices evolution
+- **Kubernetes**: controller-runtime v0.19.1 for operator functionality
+- **CRDs**: v1alpha1 API with JIRASync, JIRAProject, SyncSchedule resources
+- **Operator**: Production-ready reconciliation with finalizers and retry logic
+- **Architecture**: Clean interface-based design with implemented Kubernetes operator
 - **Testing**: Comprehensive end-to-end testing with performance benchmarking and always-working code validation
 
 ### Quick Start (v0.3.0)

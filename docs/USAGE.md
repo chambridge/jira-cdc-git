@@ -472,6 +472,109 @@ curl -H "Authorization: Bearer YOUR_PAT" \
      "https://your-jira.atlassian.net/rest/api/2/issue/PROJ-123"
 ```
 
+## Kubernetes Operator Usage (v0.4.1)
+
+The JIRA CDC Git Sync operator enables declarative management of sync operations through Kubernetes Custom Resources.
+
+### Prerequisites
+
+- Kubernetes cluster (v1.24+)
+- kubectl configured
+- Operator deployed (see [docs/OPERATOR.md](OPERATOR.md))
+
+### Quick Start
+
+Install CRDs and create JIRA credentials:
+
+```bash
+# Install Custom Resource Definitions
+kubectl apply -f crds/v1alpha1/
+
+# Create JIRA credentials secret
+kubectl create secret generic jira-credentials \
+  --from-literal=base-url=https://your-company.atlassian.net \
+  --from-literal=email=your-email@company.com \
+  --from-literal=pat=your-personal-access-token
+```
+
+### CRD Examples
+
+#### Single Issue Sync
+
+```yaml
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: critical-issue-sync
+spec:
+  syncType: "single"
+  target:
+    issueKeys: ["PROJ-123", "PROJ-456"]
+  destination:
+    repository: "/tmp/sync-repo"
+    branch: "main"
+```
+
+#### Epic Sync via JQL
+
+```yaml
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: epic-all-issues
+spec:
+  syncType: "jql"
+  target:
+    jqlQuery: "Epic Link = PROJ-789"
+  destination:
+    repository: "/tmp/sync-repo"
+    branch: "main"
+  retryPolicy:
+    maxRetries: 3
+    backoffMultiplier: 2.0
+    initialDelay: 5
+```
+
+#### Incremental Project Sync
+
+```yaml
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: project-incremental
+spec:
+  syncType: "incremental"
+  target:
+    projectKey: "PROJ"
+  destination:
+    repository: "/tmp/sync-repo"
+    branch: "main"
+```
+
+### Apply and Monitor
+
+```bash
+# Apply sync resource
+kubectl apply -f sync-resource.yaml
+
+# Monitor status
+kubectl get jirasyncs
+kubectl describe jirasync epic-all-issues
+
+# Watch for completion
+kubectl get jirasyncs -w
+```
+
+### Resource Status
+
+JIRASync resources progress through these phases:
+- **Pending**: Resource created, job creation pending
+- **Running**: Kubernetes job executing sync
+- **Completed**: Sync finished successfully
+- **Failed**: Sync encountered an error
+
+For detailed operator usage, see [docs/OPERATOR.md](OPERATOR.md).
+
 ## Integration with CI/CD
 
 ### GitOps Workflow
@@ -488,6 +591,23 @@ set -e
 git add docs/issues/
 git commit -m "docs: update JIRA issue sync"
 git push origin main
+```
+
+### Declarative Kubernetes Workflow
+
+```yaml
+# GitOps approach with operator
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: ci-epic-sync
+spec:
+  syncType: "jql"
+  target:
+    jqlQuery: "project = PROJ AND status = 'In Progress'"
+  destination:
+    repository: "/data/ci-issues"
+    branch: "ci-sync"
 ```
 
 ### Environment Variables
