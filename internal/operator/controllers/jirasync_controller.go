@@ -8,9 +8,7 @@ import (
 
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -21,20 +19,25 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/chambrid/jira-cdc-git/internal/operator/apiclient"
 	operatortypes "github.com/chambrid/jira-cdc-git/internal/operator/types"
 )
 
 // JIRASyncReconciler reconciles a JIRASync object
 type JIRASyncReconciler struct {
 	client.Client
-	Scheme  *runtime.Scheme
-	Log     logr.Logger
-	APIHost string // v0.4.0 API server host for job triggering
+	Scheme    *runtime.Scheme
+	Log       logr.Logger
+	APIHost   string              // v0.4.0 API server host for job triggering
+	APIClient apiclient.APIClient // API client for triggering sync operations
 
 	// Metrics
 	reconcileCounter  prometheus.CounterVec
 	reconcileDuration prometheus.HistogramVec
 	syncJobsTotal     prometheus.GaugeVec
+	apiHealthStatus   prometheus.GaugeVec
+	apiCallCounter    prometheus.CounterVec
+	apiCallDuration   prometheus.HistogramVec
 }
 
 const (
@@ -66,11 +69,17 @@ const (
 
 // NewJIRASyncReconciler creates a new JIRASyncReconciler with metrics
 func NewJIRASyncReconciler(mgr ctrl.Manager, apiHost string) *JIRASyncReconciler {
+	log := ctrl.Log.WithName("controllers").WithName("JIRASync")
+
+	// Create API client for v0.4.0 integration
+	apiClient := apiclient.NewAPIClient(apiHost, 30*time.Second, log.WithName("api-client"))
+
 	reconciler := &JIRASyncReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Log:     ctrl.Log.WithName("controllers").WithName("JIRASync"),
-		APIHost: apiHost,
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Log:       log,
+		APIHost:   apiHost,
+		APIClient: apiClient,
 	}
 
 	// Initialize metrics
@@ -106,8 +115,34 @@ func (r *JIRASyncReconciler) initMetrics() {
 		[]string{"namespace", "phase"},
 	)
 
+	r.apiHealthStatus = *prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "jirasync_api_health_status",
+			Help: "Health status of the v0.4.0 API server (1=healthy, 0=unhealthy)",
+		},
+		[]string{"api_host"},
+	)
+
+	r.apiCallCounter = *prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "jirasync_api_calls_total",
+			Help: "Total number of API calls made to v0.4.0 server",
+		},
+		[]string{"endpoint", "status"},
+	)
+
+	r.apiCallDuration = *prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "jirasync_api_call_duration_seconds",
+			Help:    "Duration of API calls to v0.4.0 server",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"endpoint"},
+	)
+
 	// Register metrics with controller-runtime's metrics registry
-	metrics.Registry.MustRegister(&r.reconcileCounter, &r.reconcileDuration, &r.syncJobsTotal)
+	metrics.Registry.MustRegister(&r.reconcileCounter, &r.reconcileDuration, &r.syncJobsTotal,
+		&r.apiHealthStatus, &r.apiCallCounter, &r.apiCallDuration)
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -218,54 +253,156 @@ func (r *JIRASyncReconciler) initializeSync(ctx context.Context, jiraSync *opera
 	return r.updateStatus(ctx, jiraSync, PhasePending, "Sync initialized and validated")
 }
 
-// handlePending processes a pending sync by creating a Job
+// handlePending processes a pending sync by triggering API operations
 func (r *JIRASyncReconciler) handlePending(ctx context.Context, jiraSync *operatortypes.JIRASync) (ctrl.Result, error) {
 	log := r.Log.WithValues("jirasync", client.ObjectKeyFromObject(jiraSync))
-	log.Info("Handling pending JIRASync")
+	log.Info("Handling pending JIRASync - triggering API call")
 
-	// Check if Job already exists
-	var job batchv1.Job
-	jobName := r.generateJobName(jiraSync)
-	err := r.Get(ctx, types.NamespacedName{Name: jobName, Namespace: jiraSync.Namespace}, &job)
+	// Check if sync is already running (has a job ID)
+	if jiraSync.Status.JobRef != nil && jiraSync.Status.JobRef.Name != "" {
+		log.Info("Sync already has job ID, moving to running phase")
+		return r.updateStatus(ctx, jiraSync, PhaseRunning, "API sync operation already triggered")
+	}
 
-	if err != nil && apierrors.IsNotFound(err) {
-		// Create new Job
-		newJob, err := r.createSyncJob(ctx, jiraSync)
-		if err != nil {
-			r.recordError(jiraSync, err)
-			return r.updateStatus(ctx, jiraSync, PhaseFailed, "Failed to create Job: "+err.Error())
-		}
-
-		// Update status with job reference
-		jiraSync.Status.JobRef = &operatortypes.JobReference{
-			Name:      newJob.Name,
-			Namespace: newJob.Namespace,
-		}
-
-		return r.updateStatus(ctx, jiraSync, PhaseRunning, "Sync job created and running")
-	} else if err != nil {
-		log.Error(err, "Failed to check for existing Job")
+	// Convert JIRASync to API request
+	request, requestType, err := apiclient.ConvertJIRASyncToAPIRequest(jiraSync)
+	if err != nil {
 		r.recordError(jiraSync, err)
-		return ctrl.Result{}, err
+		return r.updateStatus(ctx, jiraSync, PhaseFailed, "Failed to convert sync spec: "+err.Error())
 	}
 
-	// Job already exists, move to running
-	jiraSync.Status.JobRef = &operatortypes.JobReference{
-		Name:      job.Name,
-		Namespace: job.Namespace,
+	log.Info("Triggering API sync operation", "type", requestType)
+
+	// Trigger the appropriate API call based on sync type with metrics
+	var response *apiclient.SyncJobResponse
+	var endpoint string
+	startTime := time.Now()
+
+	switch requestType {
+	case "single":
+		endpoint = "/api/v1/sync/single"
+		response, err = r.APIClient.TriggerSingleSync(ctx, request.(*apiclient.SingleSyncRequest))
+	case "batch":
+		endpoint = "/api/v1/sync/batch"
+		response, err = r.APIClient.TriggerBatchSync(ctx, request.(*apiclient.BatchSyncRequest))
+	case "jql":
+		endpoint = "/api/v1/sync/jql"
+		response, err = r.APIClient.TriggerJQLSync(ctx, request.(*apiclient.JQLSyncRequest))
+	default:
+		err = fmt.Errorf("unsupported request type: %s", requestType)
 	}
-	return r.updateStatus(ctx, jiraSync, PhaseRunning, "Sync job found and running")
+
+	// Record API call metrics
+	duration := time.Since(startTime)
+	status := "success"
+	if err != nil {
+		status = "error"
+	}
+	r.recordAPICall(endpoint, status, duration)
+
+	if err != nil {
+		log.Error(err, "Failed to trigger API sync operation")
+		r.recordError(jiraSync, err)
+		return r.updateStatus(ctx, jiraSync, PhaseFailed, "Failed to trigger sync: "+err.Error())
+	}
+
+	// Update status with API job reference
+	jiraSync.Status.JobRef = &operatortypes.JobReference{
+		Name:      response.JobID,
+		Namespace: "api", // Special namespace indicating this is an API job
+	}
+
+	log.Info("API sync operation triggered successfully", "jobID", response.JobID)
+	return r.updateStatus(ctx, jiraSync, PhaseRunning, fmt.Sprintf("API sync operation triggered: %s", response.JobID))
 }
 
-// handleRunning monitors a running sync job
+// handleRunning monitors a running sync operation via API
 func (r *JIRASyncReconciler) handleRunning(ctx context.Context, jiraSync *operatortypes.JIRASync) (ctrl.Result, error) {
 	log := r.Log.WithValues("jirasync", client.ObjectKeyFromObject(jiraSync))
 	log.Info("Handling running JIRASync")
 
-	if jiraSync.Status.JobRef == nil {
+	if jiraSync.Status.JobRef == nil || jiraSync.Status.JobRef.Name == "" {
 		log.Info("No job reference found, moving back to pending")
 		return r.updateStatus(ctx, jiraSync, PhasePending, "No job reference found")
 	}
+
+	// Check if this is an API job (namespace = "api") or legacy Kubernetes job
+	if jiraSync.Status.JobRef.Namespace == "api" {
+		// This is an API job, check status via API
+		return r.handleAPIJobStatus(ctx, jiraSync)
+	}
+
+	// Legacy Kubernetes job handling (for backward compatibility)
+	return r.handleKubernetesJobStatus(ctx, jiraSync)
+}
+
+// handleAPIJobStatus checks the status of an API job
+func (r *JIRASyncReconciler) handleAPIJobStatus(ctx context.Context, jiraSync *operatortypes.JIRASync) (ctrl.Result, error) {
+	log := r.Log.WithValues("jirasync", client.ObjectKeyFromObject(jiraSync), "jobID", jiraSync.Status.JobRef.Name)
+	log.Info("Checking API job status")
+
+	// Get job status from API
+	jobStatus, err := r.APIClient.GetJobStatus(ctx, jiraSync.Status.JobRef.Name)
+	if err != nil {
+		log.Error(err, "Failed to get job status from API")
+		r.recordError(jiraSync, err)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil // Retry after 30 seconds
+	}
+
+	log.Info("API job status received", "status", jobStatus.Status, "progress", jobStatus.Progress)
+
+	// Update sync stats with progress
+	// Note: API doesn't provide issue counts yet, so we keep existing values
+
+	switch jobStatus.Status {
+	case "completed":
+		// Job completed successfully
+		if jiraSync.Status.SyncStats != nil && jiraSync.Status.SyncStats.StartTime != nil {
+			duration := time.Since(jiraSync.Status.SyncStats.StartTime.Time)
+			jiraSync.Status.SyncStats.Duration = duration.String()
+			jiraSync.Status.SyncStats.LastSyncTime = &metav1.Time{Time: time.Now()}
+		}
+
+		// Clear any previous error
+		r.clearError(jiraSync)
+
+		return r.updateStatus(ctx, jiraSync, PhaseCompleted, "API sync completed successfully")
+
+	case "failed":
+		// Job failed
+		errorMsg := "API sync operation failed"
+		if jobStatus.Message != "" {
+			errorMsg += ": " + jobStatus.Message
+		}
+		r.recordError(jiraSync, fmt.Errorf("%s", errorMsg))
+		return r.updateStatus(ctx, jiraSync, PhaseFailed, errorMsg)
+
+	case "running", "pending":
+		// Job still running, requeue for later check
+		message := fmt.Sprintf("API sync in progress (status: %s)", jobStatus.Status)
+		if jobStatus.Progress > 0 {
+			message = fmt.Sprintf("API sync in progress (status: %s), progress: %d%%", jobStatus.Status, jobStatus.Progress)
+		}
+
+		// Update status without changing phase
+		if err := r.Status().Update(ctx, jiraSync); err != nil {
+			log.Error(err, "Failed to update status")
+		}
+
+		log.Info(message)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil // Check again in 15 seconds
+
+	default:
+		// Unknown status
+		log.Info("Unknown job status", "status", jobStatus.Status)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+}
+
+// handleKubernetesJobStatus handles legacy Kubernetes job status checking
+func (r *JIRASyncReconciler) handleKubernetesJobStatus(ctx context.Context, jiraSync *operatortypes.JIRASync) (ctrl.Result, error) {
+	log := r.Log.WithValues("jirasync", client.ObjectKeyFromObject(jiraSync))
+	log.Info("Checking Kubernetes job status (legacy mode)")
 
 	// Fetch the Job
 	var job batchv1.Job
@@ -287,9 +424,11 @@ func (r *JIRASyncReconciler) handleRunning(ctx context.Context, jiraSync *operat
 	// Check job status
 	if job.Status.Succeeded > 0 {
 		// Job completed successfully
-		duration := time.Since(jiraSync.Status.SyncStats.StartTime.Time)
-		jiraSync.Status.SyncStats.Duration = duration.String()
-		jiraSync.Status.SyncStats.LastSyncTime = &metav1.Time{Time: time.Now()}
+		if jiraSync.Status.SyncStats != nil && jiraSync.Status.SyncStats.StartTime != nil {
+			duration := time.Since(jiraSync.Status.SyncStats.StartTime.Time)
+			jiraSync.Status.SyncStats.Duration = duration.String()
+			jiraSync.Status.SyncStats.LastSyncTime = &metav1.Time{Time: time.Now()}
+		}
 
 		// Clear any previous error
 		r.clearError(jiraSync)
@@ -387,106 +526,9 @@ func (r *JIRASyncReconciler) handleDeletion(ctx context.Context, jiraSync *opera
 	return ctrl.Result{}, nil
 }
 
-// createSyncJob creates a Kubernetes Job for the sync operation
-func (r *JIRASyncReconciler) createSyncJob(ctx context.Context, jiraSync *operatortypes.JIRASync) (*batchv1.Job, error) {
-	log := r.Log.WithValues("jirasync", client.ObjectKeyFromObject(jiraSync))
-
-	jobName := r.generateJobName(jiraSync)
-
-	// Build command arguments based on sync type
-	args := r.buildSyncArgs(jiraSync)
-
-	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobName,
-			Namespace: jiraSync.Namespace,
-			Labels: map[string]string{
-				"app":                     "jira-sync",
-				"sync.jira.io/sync-type":  jiraSync.Spec.SyncType,
-				"sync.jira.io/managed-by": "jira-sync-operator",
-			},
-		},
-		Spec: batchv1.JobSpec{
-			BackoffLimit: func() *int32 { i := int32(1); return &i }(), // Only 1 retry at job level
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
-					Containers: []corev1.Container{
-						{
-							Name:  "jira-sync",
-							Image: "jira-sync:latest", // This would be configurable in production
-							Args:  args,
-							Env: []corev1.EnvVar{
-								{
-									Name: "JIRA_BASE_URL",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: "jira-credentials",
-											},
-											Key: "base-url",
-										},
-									},
-								},
-								{
-									Name: "JIRA_EMAIL",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: "jira-credentials",
-											},
-											Key: "email",
-										},
-									},
-								},
-								{
-									Name: "JIRA_PAT",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: "jira-credentials",
-											},
-											Key: "pat",
-										},
-									},
-								},
-							},
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("100m"),
-									corev1.ResourceMemory: resource.MustParse("128Mi"),
-								},
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("500m"),
-									corev1.ResourceMemory: resource.MustParse("512Mi"),
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	// Set owner reference
-	if err := controllerutil.SetControllerReference(jiraSync, job, r.Scheme); err != nil {
-		return nil, err
-	}
-
-	// Create the Job
-	if err := r.Create(ctx, job); err != nil {
-		return nil, err
-	}
-
-	log.Info("Created sync job", "jobName", jobName)
-	return job, nil
-}
-
-// Helper functions
-
-func (r *JIRASyncReconciler) generateJobName(jiraSync *operatortypes.JIRASync) string {
-	return fmt.Sprintf("%s-%d", jiraSync.Name, time.Now().Unix())
-}
+// Legacy functions for creating Kubernetes Jobs are no longer used in v0.4.1
+// as we now use the API server for job triggering. These functions are kept
+// for backward compatibility with legacy Kubernetes Job handling in handleKubernetesJobStatus.
 
 func (r *JIRASyncReconciler) buildSyncArgs(jiraSync *operatortypes.JIRASync) []string {
 	args := []string{"sync"}
@@ -635,4 +677,40 @@ func (r *JIRASyncReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&operatortypes.JIRASync{}).
 		Owns(&batchv1.Job{}).
 		Complete(r)
+}
+
+// recordAPICall records metrics for API calls
+func (r *JIRASyncReconciler) recordAPICall(endpoint, status string, duration time.Duration) {
+	r.apiCallCounter.WithLabelValues(endpoint, status).Inc()
+	r.apiCallDuration.WithLabelValues(endpoint).Observe(duration.Seconds())
+}
+
+// performHealthCheck checks the health of the API server and updates metrics
+func (r *JIRASyncReconciler) performHealthCheck(ctx context.Context) {
+	log := r.Log.WithName("health-check")
+
+	err := r.APIClient.HealthCheck(ctx)
+	if err != nil {
+		log.Error(err, "API health check failed")
+		r.apiHealthStatus.WithLabelValues(r.APIHost).Set(0) // Unhealthy
+	} else {
+		log.V(1).Info("API health check passed")
+		r.apiHealthStatus.WithLabelValues(r.APIHost).Set(1) // Healthy
+	}
+}
+
+// StartHealthCheckRoutine starts a background goroutine for periodic health checks
+func (r *JIRASyncReconciler) StartHealthCheckRoutine(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second) // Health check every 30 seconds
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				r.performHealthCheck(ctx)
+			}
+		}
+	}()
 }

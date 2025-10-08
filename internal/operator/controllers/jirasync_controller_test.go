@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/chambrid/jira-cdc-git/internal/operator/apiclient"
 	operatortypes "github.com/chambrid/jira-cdc-git/internal/operator/types"
 )
 
@@ -35,12 +36,16 @@ func setupTestReconciler() (*JIRASyncReconciler, client.Client) {
 		WithStatusSubresource(&operatortypes.JIRASync{}).
 		Build()
 
+	// Create mock API client
+	mockAPIClient := apiclient.NewMockAPIClient()
+
 	// Create reconciler
 	reconciler := &JIRASyncReconciler{
-		Client:  fakeClient,
-		Scheme:  testScheme,
-		Log:     ctrl.Log.WithName("test"),
-		APIHost: "http://test-api:8080",
+		Client:    fakeClient,
+		Scheme:    testScheme,
+		Log:       ctrl.Log.WithName("test"),
+		APIHost:   "http://test-api:8080",
+		APIClient: mockAPIClient,
 	}
 
 	// Initialize metrics manually without registration to avoid conflicts in tests
@@ -67,6 +72,32 @@ func setupTestReconciler() (*JIRASyncReconciler, client.Client) {
 			Help: "Total number of active sync jobs",
 		},
 		[]string{"namespace", "phase"},
+	)
+
+	// Initialize API monitoring metrics for tests
+	reconciler.apiHealthStatus = *prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "test_jirasync_api_health_status",
+			Help: "Test API health metric",
+		},
+		[]string{"api_host"},
+	)
+
+	reconciler.apiCallCounter = *prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "test_jirasync_api_calls_total",
+			Help: "Test API calls metric",
+		},
+		[]string{"endpoint", "status"},
+	)
+
+	reconciler.apiCallDuration = *prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "test_jirasync_api_call_duration_seconds",
+			Help:    "Test API call duration metric",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"endpoint"},
 	)
 
 	return reconciler, fakeClient
@@ -169,21 +200,23 @@ func TestJIRASyncReconciler_HandlePending(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, result.Requeue)
 
-	// Verify job was created and status updated
+	// Verify API sync was triggered and status updated
 	var updated operatortypes.JIRASync
 	err = fakeClient.Get(context.TODO(), client.ObjectKeyFromObject(jiraSync), &updated)
 	require.NoError(t, err)
 	assert.Equal(t, PhaseRunning, updated.Status.Phase)
 	assert.NotNil(t, updated.Status.JobRef)
 
-	// Verify job exists
-	var job batchv1.Job
-	err = fakeClient.Get(context.TODO(), types.NamespacedName{
-		Name:      updated.Status.JobRef.Name,
-		Namespace: updated.Status.JobRef.Namespace,
-	}, &job)
-	assert.NoError(t, err)
-	assert.Equal(t, "jira-sync", job.Spec.Template.Spec.Containers[0].Name)
+	// Verify job reference is for API job (not Kubernetes job)
+	assert.Equal(t, "api", updated.Status.JobRef.Namespace)
+	assert.Equal(t, "mock-job-123", updated.Status.JobRef.Name) // Mock API client returns this job ID
+
+	// Verify API client was called
+	mockAPIClient := reconciler.APIClient.(*apiclient.MockAPIClient)
+	assert.Len(t, mockAPIClient.TriggerSingleSyncCalls, 1)
+	apiCall := mockAPIClient.TriggerSingleSyncCalls[0]
+	assert.Equal(t, "TEST-123", apiCall.IssueKey)
+	assert.Equal(t, "https://github.com/test/repo.git", apiCall.Repository)
 }
 
 func TestJIRASyncReconciler_HandleRunning_JobSucceeded(t *testing.T) {
