@@ -78,7 +78,7 @@ lint-fix:
 test:
 	@echo "🧪 Running tests..."
 	mkdir -p $(COVERAGE_DIR)
-	$(GOTEST) -v -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+	$(GOTEST) -v -p 1 -count=1 -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
 
 .PHONY: test-race
 test-race:
@@ -268,7 +268,7 @@ ci-lint:
 ci-test:
 	@echo "🧪 CI: Running tests with coverage..."
 	mkdir -p $(COVERAGE_DIR)
-	$(GOTEST) -v -race -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+	$(GOTEST) -v -race -p 1 -count=1 -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
 	$(GOCMD) tool cover -func=$(COVERAGE_DIR)/coverage.out
 
 .PHONY: ci-build

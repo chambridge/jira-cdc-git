@@ -9,6 +9,51 @@ The JIRA CDC Git Sync Kubernetes operator provides declarative management of JIR
 - Kubernetes cluster (v1.24+)
 - kubectl configured for your cluster
 - JIRA credentials (base URL, email, Personal Access Token)
+- Optional: v0.4.0 API server for enhanced sync operations
+
+## API Server Integration (v0.4.1)
+
+The operator supports integration with the v0.4.0 API server for enhanced sync operations:
+
+### Benefits
+- **Enhanced Monitoring**: Centralized job tracking and metrics
+- **Circuit Breaker**: Automatic error handling and retry mechanisms  
+- **Multiple Auth**: Bearer token, API key, and Basic authentication
+- **Health Checks**: Automatic API server availability monitoring
+
+### Configuration
+Enable API integration by setting environment variables:
+
+```bash
+# API server integration environment variables
+API_SERVER_URL=http://api-server:8080
+API_AUTH_TYPE=Bearer  # Bearer, APIKey, or Basic
+API_AUTH_TOKEN=your-api-token
+```
+
+### Deployment with API Integration
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jira-sync-operator
+spec:
+  template:
+    spec:
+      containers:
+      - name: operator
+        image: jira-sync-operator:latest
+        env:
+        - name: API_SERVER_URL
+          value: "http://api-server:8080"
+        - name: API_AUTH_TYPE
+          value: "Bearer"
+        - name: API_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: api-credentials
+              key: token
+```
 
 ## Quick Start
 
@@ -174,6 +219,12 @@ kubectl describe crd jirasyncs.sync.jira.io
 **Resource not found**:
 - Ensure CRDs are installed: `kubectl apply -f crds/v1alpha1/`
 - Check API versions match your Kubernetes cluster
+
+**API Integration Issues**:
+- Check operator logs for API client errors
+- Verify API server URL and credentials are correct
+- Test API server connectivity: `curl $API_SERVER_URL/health`
+- Validate API authentication token permissions
 
 ## Testing
 
