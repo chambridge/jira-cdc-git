@@ -120,7 +120,7 @@ spec:
   target:
     issueKeys: ["PROJ-123"]
   destination:
-    repository: "/tmp/sync-repo"
+    repository: "https://github.com/company/jira-issues.git"
     branch: "main"
 ```
 
@@ -136,7 +136,7 @@ spec:
   target:
     jqlQuery: "Epic Link = PROJ-456"
   destination:
-    repository: "/tmp/sync-repo"
+    repository: "https://github.com/company/jira-issues.git"
     branch: "main"
   retryPolicy:
     maxRetries: 3
@@ -156,7 +156,7 @@ spec:
   target:
     projectKey: "PROJ"
   destination:
-    repository: "/tmp/sync-repo"
+    repository: "https://github.com/company/jira-issues.git"
     branch: "main"
 ```
 
@@ -233,6 +233,153 @@ Run operator-specific tests:
 ```bash
 make test-operator
 ```
+
+## Security Configuration
+
+### RBAC Deployment
+
+The operator requires specific RBAC permissions for secure operation. Deploy the complete RBAC configuration before starting the operator:
+
+```bash
+# Apply RBAC configuration (ServiceAccount, ClusterRole, ClusterRoleBinding)
+kubectl apply -f deployments/api-server/rbac.yaml
+
+# Verify ServiceAccount creation
+kubectl get serviceaccount jira-sync-api -n jira-sync-v040
+
+# Verify ClusterRole permissions
+kubectl describe clusterrole jira-sync-api
+
+# Verify ClusterRoleBinding
+kubectl get clusterrolebinding jira-sync-api
+```
+
+### RBAC Permissions Overview
+
+The operator uses **minimal required permissions** following the principle of least privilege:
+
+| Resource | Permissions | Purpose |
+|----------|-------------|---------|
+| **Jobs** (batch/v1) | `get`, `list`, `watch`, `create`, `update`, `patch`, `delete` | Full job lifecycle management |
+| **Pods** (v1) | `get`, `list`, `watch` | Monitor job execution status |
+| **Pod Logs** (v1) | `get`, `list` | Debug and troubleshooting |
+| **Events** (v1) | `get`, `list`, `watch` | Audit trail and monitoring |
+
+### Security Validation Tests
+
+Validate security protections by running the security test suite:
+
+```bash
+# Apply security test cases (all should fail for security reasons)
+kubectl apply -f crds/v1alpha1/tests/security/jirasync-security-tests.yaml
+
+# Monitor test results - all should be rejected
+kubectl get jirasyncs | grep security-test
+
+# View rejection reasons
+kubectl describe jirasync security-test-local-file
+```
+
+### Secure Credential Management
+
+Create and manage JIRA credentials securely:
+
+```bash
+# Create credentials secret with secure token
+kubectl create secret generic jira-credentials \
+  --from-literal=base-url=https://your-company.atlassian.net \
+  --from-literal=email=your-email@company.com \
+  --from-literal=pat=your-personal-access-token \
+  --namespace=jira-sync-v040
+
+# Verify secret creation (credentials will be masked)
+kubectl describe secret jira-credentials -n jira-sync-v040
+
+# Test credential access from operator pod
+kubectl get secret jira-credentials -n jira-sync-v040 -o yaml
+```
+
+### Security-Enhanced Deployment
+
+Deploy the operator with security best practices:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jira-sync-operator
+  namespace: jira-sync-v040
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jira-sync-operator
+  template:
+    metadata:
+      labels:
+        app: jira-sync-operator
+    spec:
+      serviceAccountName: jira-sync-api  # Use dedicated ServiceAccount
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+      containers:
+      - name: operator
+        image: jira-sync-operator:latest
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        env:
+        - name: LEADER_ELECTION
+          value: "true"
+        # API integration credentials (if used)
+        - name: API_SERVER_URL
+          value: "http://api-server:8080"
+        - name: API_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: api-credentials
+              key: token
+```
+
+### Security Troubleshooting
+
+Common security-related issues and solutions:
+
+**RBAC Permission Denied**:
+```bash
+# Check if RBAC is applied
+kubectl get clusterrole jira-sync-api
+kubectl get clusterrolebinding jira-sync-api
+
+# Review operator logs for permission errors
+kubectl logs -l app=jira-sync-operator | grep -i "forbidden\|unauthorized"
+```
+
+**Security Test Failures**:
+```bash
+# Expected: Security tests should fail (be rejected)
+# If security tests succeed, check input validation implementation
+
+# View test resource status
+kubectl get jirasyncs -o wide | grep security-test
+```
+
+**Credential Issues**:
+```bash
+# Check secret exists and has correct keys
+kubectl get secret jira-credentials -n jira-sync-v040 -o jsonpath='{.data}' | base64 -d
+
+# Test JIRA connectivity from operator pod
+kubectl exec -it deploy/jira-sync-operator -- curl -H "Authorization: Bearer $JIRA_PAT" \
+  "https://your-company.atlassian.net/rest/api/2/myself"
+```
+
+For comprehensive security documentation, see [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Configuration
 

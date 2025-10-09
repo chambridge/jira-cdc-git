@@ -348,25 +348,58 @@ func (g *GitRepository) CommitIssueFile(repo, file, issue) error
 3. **YAML Streaming**: Direct marshal to file for large issues
 4. **Path Caching**: Cache resolved absolute paths
 
-## Security Architecture
+## Security Architecture (Enterprise-Grade v0.4.1+)
 
-### Security Boundaries
+### Multi-Layer Security Model
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Security Perimeter                     │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │   Input     │  │Credentials  │  │ File System │         │
-│  │ Validation  │  │ Protection  │  │ Boundaries  │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Enterprise Security Perimeter                     │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
+│  │   Input     │  │    RBAC     │  │Credentials  │  │ Pod/Runtime │       │
+│  │ Validation  │  │ Least Priv  │  │ Protection  │  │  Security   │       │
+│  │ (15+ Attack │  │ (Jobs/Pods) │  │ (K8s Secrets│  │ (Standards) │       │
+│  │ Scenarios)  │  │             │  │  Only)      │  │             │       │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘       │
+│                                                                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
+│  │  Protocol   │  │ CRD Schema  │  │File System  │  │ Audit/Log   │       │
+│  │ Enforcement │  │ Validation  │  │ Boundaries  │  │ Security    │       │
+│  │(HTTPS Only) │  │(Structural) │  │(Path Valid) │  │(No Secrets) │       │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘       │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Security Controls
-1. **Input Validation**: All CLI inputs validated
-2. **Credential Protection**: Environment variable only, no logging
-3. **Path Validation**: Prevent directory traversal attacks
-4. **HTTPS Enforcement**: Only HTTPS connections to JIRA
-5. **File Permissions**: Proper permissions on created files
+### Security Controls (JCG-028 Implementation)
+
+#### Layer 1: Input Validation & Attack Prevention
+- **15+ Attack Scenarios Protected**: SQL injection, XSS, command injection, directory traversal
+- **Protocol Enforcement**: HTTPS/Git only, blocks file://, ftp://, data: URIs
+- **Length Limits**: DoS protection via input size validation
+- **Pattern Validation**: Regex-based input sanitization for all user inputs
+
+#### Layer 2: RBAC & Kubernetes Security
+- **Minimal Permissions**: ServiceAccount with job management only (principle of least privilege)
+- **ClusterRole Scope**: Jobs (full), Pods/Events (read-only), no secret access
+- **Pod Security Standards**: Non-root containers, read-only filesystems, dropped capabilities
+- **Network Security**: HTTPS-only communications, network policies
+
+#### Layer 3: Credential & Runtime Protection
+- **Kubernetes Secrets**: Encrypted at rest, namespace isolation
+- **No Credential Logging**: Sensitive data excluded from all logs and error messages
+- **Runtime Hardening**: Security contexts, resource limits, privilege escalation prevention
+
+#### Layer 4: Validation & Testing
+- **CRD Structural Validation**: Kubernetes-native input validation at API level
+- **Security Test Suite**: Automated validation of 15+ attack scenarios (all must be rejected)
+- **Continuous Validation**: Security tests integrated into CI/CD pipeline
+
+### Security Test Framework
+```bash
+# Enterprise security validation
+kubectl apply -f crds/v1alpha1/tests/security/    # All should be REJECTED
+kubectl auth can-i create jobs --as=system:serviceaccount:jira-sync-v040:jira-sync-api  # Should be "yes"
+kubectl auth can-i create secrets --as=system:serviceaccount:jira-sync-v040:jira-sync-api  # Should be "no"
+```
 
 ## Deployment Architecture
 

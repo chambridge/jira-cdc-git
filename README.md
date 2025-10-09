@@ -15,6 +15,7 @@ This system provides automated synchronization of JIRA issues and their relation
 - **Rate Limiting**: Built-in JIRA API rate limiting and performance optimization
 - **Web Interface**: Simple UI for managing sync tasks and monitoring
 - **Job-based Processing**: Kubernetes Jobs handle sync operations for scalability
+- **Enterprise Security**: RBAC, input validation, and comprehensive security testing
 
 ## Architecture
 
@@ -59,6 +60,56 @@ Issue relationships are maintained via symbolic links:
         └── {story-key} -> ../../../issues/{story-key}.yaml
 ```
 
+## Security Features (v0.4.1+)
+
+### RBAC and Least Privilege Access
+- **Minimal Permissions**: Operator runs with minimal required Kubernetes permissions
+- **ServiceAccount**: Dedicated service account for API server operations (`jira-sync-api`)
+- **ClusterRole**: Job management (full access) and pod monitoring (read-only) permissions only
+- **Network Security**: HTTPS-only connections, no local file or FTP protocol access
+
+### Input Validation and Security Testing
+- **Comprehensive Validation**: Protection against 15+ attack scenarios including:
+  - XSS and script injection prevention
+  - SQL injection protection in JQL queries
+  - Directory traversal and path injection prevention
+  - Command injection mitigation
+  - DoS protection via input length limits
+- **Security Test Suite**: Automated security validation in `crds/v1alpha1/tests/security/`
+- **Protocol Restrictions**: HTTPS/Git protocols only, unsafe schemes blocked
+
+### Credential Management
+- **Kubernetes Secrets**: Secure credential handling via native Kubernetes secrets
+- **Token-based Authentication**: Personal Access Token (PAT) support for JIRA
+- **No Credential Logging**: Sensitive data excluded from logs and error messages
+- **Environment Isolation**: Credentials isolated per namespace/deployment
+
+### Security Configuration Files
+```bash
+# RBAC deployment
+deployments/api-server/rbac.yaml              # ServiceAccount, ClusterRole, ClusterRoleBinding
+
+# Security validation
+crds/v1alpha1/tests/security/                 # 15 comprehensive security test cases
+```
+
+### Security Deployment Quick Start
+```bash
+# 1. Apply RBAC configuration
+kubectl apply -f deployments/api-server/rbac.yaml
+
+# 2. Create secure JIRA credentials
+kubectl create secret generic jira-credentials \
+  --from-literal=base-url=https://your-company.atlassian.net \
+  --from-literal=email=your-email@company.com \
+  --from-literal=pat=your-personal-access-token
+
+# 3. Verify security test cases (all should fail for security)
+kubectl apply -f crds/v1alpha1/tests/security/jirasync-security-tests.yaml
+```
+
+For comprehensive security documentation, see [docs/SECURITY.md](docs/SECURITY.md).
+
 ## Sync Operations
 
 ### Supported Sync Types
@@ -75,9 +126,10 @@ Issue relationships are maintained via symbolic links:
 
 ## Development Philosophy
 
-This project follows a fast iterative delivery approach:
+This project follows a fast iterative delivery approach with security-first design:
 - **Always Working Code**: Every commit maintains a working system
 - **Test-Driven Development**: Comprehensive test coverage at all levels
+- **Security by Design**: Enterprise-grade security with RBAC, input validation, and comprehensive threat protection
 - **Incremental Deliverables**: Each component delivers standalone value
 - **Documentation First**: Requirements and architecture documented before implementation
 
@@ -124,14 +176,23 @@ internal/             # Private application code
 
 crds/                 # ✅ Custom Resource Definitions (v0.4.1)
 └── v1alpha1/         # ✅ JIRASync, JIRAProject, SyncSchedule CRDs
+    └── tests/security/ # ✅ Comprehensive security test cases (15+ attack scenarios)
+
+deployments/          # ✅ Kubernetes deployment manifests (v0.4.1)
+├── api-server/       # ✅ API server deployment with RBAC
+│   ├── rbac.yaml     # ✅ ServiceAccount, ClusterRole, ClusterRoleBinding
+│   ├── deployment.yaml # ✅ Security-hardened pod deployment
+│   └── ...           # ✅ ConfigMaps, Services, Secrets
+└── jobs/             # ✅ Kubernetes job templates
 ```
 
-## Current Release: v0.4.1 (Partial - Operator Implementation)
+## Current Release: v0.4.1 (Operator and Security Implementation)
 
-**Status**: 🚀 IN PROGRESS - Kubernetes Operator and CRD Management  
+**Status**: 🚀 MAJOR FEATURES COMPLETE - Kubernetes Operator and Enterprise Security  
 - ✅ **JCG-025**: Custom Resource Definitions (CRDs) - COMPLETED
 - ✅ **JCG-026**: Operator Controller Core Logic - COMPLETED  
 - ✅ **JCG-027**: API Server Integration - COMPLETED
+- ✅ **JCG-028**: RBAC and Security Configuration - COMPLETED
 
 ### Technology Stack
 - **Language**: Go 1.24+
@@ -148,6 +209,7 @@ crds/                 # ✅ Custom Resource Definitions (v0.4.1)
 - **API Integration**: Operator integrates with v0.4.0 API server with circuit breaker patterns
 - **Architecture**: Clean interface-based design with implemented Kubernetes operator
 - **Testing**: Comprehensive end-to-end testing with performance benchmarking and always-working code validation
+- **Security**: Enterprise-grade RBAC, input validation (15+ attack scenarios), and Kubernetes security standards compliance
 
 ### Quick Start (v0.3.0)
 

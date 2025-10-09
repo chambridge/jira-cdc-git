@@ -435,6 +435,50 @@ Error: invalid issue key: issue key 'invalid' does not match JIRA format
 - ✅ **Token-based auth** - Uses modern authentication methods
 - ✅ **Input validation** - All inputs are validated before processing
 
+### Kubernetes Security (v0.4.1+)
+
+For Kubernetes deployments, additional security measures are implemented:
+
+#### RBAC Deployment
+```bash
+# Deploy RBAC configuration before operator
+kubectl apply -f deployments/api-server/rbac.yaml
+
+# Verify minimal permissions are applied
+kubectl describe clusterrole jira-sync-api
+```
+
+#### Security Validation
+```bash
+# Run security test suite (all should fail for security)
+kubectl apply -f crds/v1alpha1/tests/security/jirasync-security-tests.yaml
+
+# Check that malicious inputs are rejected
+kubectl get jirasyncs | grep security-test
+kubectl describe jirasync security-test-local-file
+```
+
+#### Secure Credential Management
+```bash
+# Create Kubernetes secrets securely
+kubectl create secret generic jira-credentials \
+  --from-literal=base-url=https://your-company.atlassian.net \
+  --from-literal=email=your-email@company.com \
+  --from-literal=pat=your-personal-access-token \
+  --namespace=jira-sync-v040
+```
+
+### Security Features
+
+The system includes comprehensive protection against:
+- **Injection Attacks**: SQL injection, XSS, command injection prevention
+- **Path Traversal**: Directory traversal and null byte injection blocking
+- **Protocol Abuse**: HTTPS/Git only, no file:// or FTP access
+- **DoS Protection**: Input length limits and resource management
+- **Privilege Escalation**: Minimal RBAC permissions (principle of least privilege)
+
+For complete security documentation, see [docs/SECURITY.md](SECURITY.md).
+
 ## Troubleshooting
 
 ### Debug Mode
@@ -511,7 +555,7 @@ spec:
   target:
     issueKeys: ["PROJ-123", "PROJ-456"]
   destination:
-    repository: "/tmp/sync-repo"
+    repository: "https://github.com/company/jira-issues.git"
     branch: "main"
 ```
 
@@ -527,7 +571,7 @@ spec:
   target:
     jqlQuery: "Epic Link = PROJ-789"
   destination:
-    repository: "/tmp/sync-repo"
+    repository: "https://github.com/company/jira-issues.git"
     branch: "main"
   retryPolicy:
     maxRetries: 3
@@ -547,7 +591,7 @@ spec:
   target:
     projectKey: "PROJ"
   destination:
-    repository: "/tmp/sync-repo"
+    repository: "https://github.com/company/jira-issues.git"
     branch: "main"
 ```
 
@@ -606,7 +650,7 @@ spec:
   target:
     jqlQuery: "project = PROJ AND status = 'In Progress'"
   destination:
-    repository: "/data/ci-issues"
+    repository: "https://github.com/company/ci-issues.git"
     branch: "ci-sync"
 ```
 
