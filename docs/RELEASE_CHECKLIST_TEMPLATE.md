@@ -126,6 +126,17 @@ This checklist template should be used for all future releases to prevent critic
   - [ ] Test input sanitization for file paths
   - [ ] Verify JQL injection prevention
   - [ ] Test malicious input handling
+- [ ] **RBAC & Kubernetes Security (v0.4.1+)**: Enterprise security validation
+  - [ ] Deploy and verify RBAC configuration: `kubectl apply -f deployments/api-server/rbac.yaml`
+  - [ ] Validate minimal permissions: `kubectl auth can-i create jobs --as=system:serviceaccount:jira-sync-v040:jira-sync-api`
+  - [ ] Test security test cases: `kubectl apply -f crds/v1alpha1/tests/security/` (all should be rejected)
+  - [ ] Verify CRD structural schema compliance and installation success
+  - [ ] Validate pod security standards and runtime hardening
+- [ ] **Attack Scenario Protection**: Comprehensive security testing
+  - [ ] Verify 15+ attack scenarios are blocked by CRD validation
+  - [ ] Test protocol restrictions (HTTPS-only, no file://, ftp://, data: URIs)
+  - [ ] Validate length limits and DoS protection
+  - [ ] Confirm input sanitization against XSS, SQL injection, command injection
 
 ### Phase 6: Release Preparation
 

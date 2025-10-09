@@ -60,9 +60,19 @@ deployments/
 
 1. **Always Working Code**: Every commit should maintain a working system
 2. **Test-Driven Development**: Write tests before implementation
-3. **Interface-First Design**: Define interfaces before implementations
-4. **Dependency Injection**: Use interfaces for major components
-5. **Clean Architecture**: Separate concerns between layers
+3. **Security by Design**: Implement input validation, RBAC, and attack prevention from the start
+4. **Interface-First Design**: Define interfaces before implementations
+5. **Dependency Injection**: Use interfaces for major components
+6. **Clean Architecture**: Separate concerns between layers
+
+### Security Development Practices
+
+- **Input Validation**: Validate all user inputs against injection attacks (SQL, XSS, command, path traversal)
+- **Credential Protection**: Never commit secrets, use Kubernetes secrets, exclude sensitive data from logs
+- **RBAC Implementation**: Follow principle of least privilege for all Kubernetes resources
+- **Security Testing**: Validate security test cases in `crds/v1alpha1/tests/security/` regularly
+- **Protocol Enforcement**: HTTPS-only, block unsafe schemes (file://, ftp://, data:)
+- **Reference Documentation**: See [docs/SECURITY.md](SECURITY.md) for comprehensive security guidelines
 
 ### Testing Strategy
 

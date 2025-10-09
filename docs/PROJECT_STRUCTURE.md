@@ -30,13 +30,20 @@
 │       └── types/        # ✅ CRD type definitions
 ├── crds/                 # ✅ Custom Resource Definitions (v0.4.1)
 │   └── v1alpha1/         # ✅ JIRASync, JIRAProject, SyncSchedule CRDs
-├── deployments/          # Kubernetes manifests
-│   ├── cli/              # CLI container deployment
-│   ├── api/              # API server deployment
-│   └── operator/         # Operator manifests
+│       └── tests/security/ # ✅ Comprehensive security test cases (15+ attack scenarios)
+├── deployments/          # ✅ Kubernetes manifests with enterprise security (v0.4.1)
+│   ├── api-server/       # ✅ API server deployment with RBAC and security hardening
+│   │   ├── rbac.yaml     # ✅ ServiceAccount, ClusterRole, ClusterRoleBinding
+│   │   ├── deployment.yaml # ✅ Security-hardened pod deployment
+│   │   └── ...           # ✅ ConfigMaps, Services, Secrets
+│   ├── jobs/             # ✅ Kubernetes job templates
+│   └── kind-config.yaml  # ✅ Kind cluster configuration for testing
 ├── build/                # Build artifacts and scripts
 ├── docs/                 # Additional documentation
-│   └── OPERATOR.md       # ✅ Operator usage guide (v0.4.1)
+│   ├── OPERATOR.md       # ✅ Operator usage guide (v0.4.1)
+│   ├── SECURITY.md       # ✅ Comprehensive security documentation (v0.4.1)
+│   ├── USAGE.md          # ✅ Complete usage guide
+│   └── DEVELOPMENT.md    # ✅ Development workflow and best practices
 ├── specs/                # Technical interface specifications
 ├── requirements/         # Product requirements by version
 ├── releases/             # Version-specific implementation tracking

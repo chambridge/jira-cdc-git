@@ -127,44 +127,36 @@ spec:
                         enum: ["single", "batch", "jql", "incremental"]
                       target:
                         type: object
-                        # Same validation as JIRASync CRD
-                        oneOf:
-                        - properties:
-                            issueKeys:
-                              type: array
-                              minItems: 1
-                              maxItems: 100
-                              items:
-                                type: string
-                                pattern: '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'
-                                minLength: 4
-                                maxLength: 50
-                          required: ["issueKeys"]
-                          additionalProperties: false
-                        - properties:
-                            jqlQuery:
-                              type: string
-                              minLength: 1
-                              maxLength: 1000
-                              pattern: '^[^;\\\\<>"\x00-\x1f]*$'
-                          required: ["jqlQuery"]
-                          additionalProperties: false
-                        - properties:
-                            projectKey:
-                              type: string
-                              pattern: '^[A-Z][A-Z0-9]*$'
-                              minLength: 2
-                              maxLength: 20
-                          required: ["projectKey"]
-                          additionalProperties: false
-                        - properties:
-                            epicKey:
+                        properties:
+                          issueKeys:
+                            type: array
+                            minItems: 1
+                            maxItems: 100
+                            items:
                               type: string
                               pattern: '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'
                               minLength: 4
                               maxLength: 50
-                          required: ["epicKey"]
-                          additionalProperties: false
+                          jqlQuery:
+                            type: string
+                            minLength: 1
+                            maxLength: 1000
+                            pattern: '^[^;\\\\<>"\x00-\x1f]*$'
+                          projectKey:
+                            type: string
+                            pattern: '^[A-Z][A-Z0-9]*$'
+                            minLength: 2
+                            maxLength: 20
+                          epicKey:
+                            type: string
+                            pattern: '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'
+                            minLength: 4
+                            maxLength: 50
+                        oneOf:
+                        - required: ["issueKeys"]
+                        - required: ["jqlQuery"]
+                        - required: ["projectKey"]
+                        - required: ["epicKey"]
                       destination:
                         type: object
                         required:
@@ -230,11 +222,11 @@ spec:
                     properties:
                       cpu:
                         type: string
-                        pattern: '^\\d+m?$'
+                        pattern: '^[0-9]+m?$'
                         default: "500m"
                       memory:
                         type: string
-                        pattern: '^\\d+(Ki|Mi|Gi)?$'
+                        pattern: '^[0-9]+(Ki|Mi|Gi)?$'
                         default: "512Mi"
           status:
             description: SyncScheduleStatus defines the observed state of SyncSchedule
