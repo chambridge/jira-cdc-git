@@ -26,10 +26,11 @@ import (
 // JIRASyncReconciler reconciles a JIRASync object
 type JIRASyncReconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	Log       logr.Logger
-	APIHost   string              // v0.4.0 API server host for job triggering
-	APIClient apiclient.APIClient // API client for triggering sync operations
+	Scheme        *runtime.Scheme
+	Log           logr.Logger
+	APIHost       string              // v0.4.0 API server host for job triggering
+	APIClient     apiclient.APIClient // API client for triggering sync operations
+	StatusManager *StatusManager      // Enhanced status management
 
 	// Metrics
 	reconcileCounter  prometheus.CounterVec
@@ -38,14 +39,14 @@ type JIRASyncReconciler struct {
 	apiHealthStatus   prometheus.GaugeVec
 	apiCallCounter    prometheus.CounterVec
 	apiCallDuration   prometheus.HistogramVec
+
+	// Status-related metrics
+	statusUpdateCounter prometheus.CounterVec
+	conditionCounter    prometheus.GaugeVec
+	progressGauge       prometheus.GaugeVec
 }
 
 const (
-	// Condition types
-	ConditionTypeReady      = "Ready"
-	ConditionTypeProcessing = "Processing"
-	ConditionTypeFailed     = "Failed"
-
 	// Phase constants
 	PhasePending   = "Pending"
 	PhaseRunning   = "Running"
@@ -74,12 +75,19 @@ func NewJIRASyncReconciler(mgr ctrl.Manager, apiHost string) *JIRASyncReconciler
 	// Create API client for v0.4.0 integration
 	apiClient := apiclient.NewAPIClient(apiHost, 30*time.Second, log.WithName("api-client"))
 
+	// Create event recorder
+	recorder := mgr.GetEventRecorderFor("jirasync-controller")
+
+	// Create status manager
+	statusManager := NewStatusManager(mgr.GetClient(), recorder, log.WithName("status"))
+
 	reconciler := &JIRASyncReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Log:       log,
-		APIHost:   apiHost,
-		APIClient: apiClient,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Log:           log,
+		APIHost:       apiHost,
+		APIClient:     apiClient,
+		StatusManager: statusManager,
 	}
 
 	// Initialize metrics
@@ -140,9 +148,34 @@ func (r *JIRASyncReconciler) initMetrics() {
 		[]string{"endpoint"},
 	)
 
+	r.statusUpdateCounter = *prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "jirasync_status_updates_total",
+			Help: "Total number of status updates",
+		},
+		[]string{"namespace", "name", "phase"},
+	)
+
+	r.conditionCounter = *prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "jirasync_conditions",
+			Help: "Current conditions status (1=True, 0=False)",
+		},
+		[]string{"namespace", "name", "type"},
+	)
+
+	r.progressGauge = *prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "jirasync_progress_percentage",
+			Help: "Current progress percentage",
+		},
+		[]string{"namespace", "name", "stage"},
+	)
+
 	// Register metrics with controller-runtime's metrics registry
 	metrics.Registry.MustRegister(&r.reconcileCounter, &r.reconcileDuration, &r.syncJobsTotal,
-		&r.apiHealthStatus, &r.apiCallCounter, &r.apiCallDuration)
+		&r.apiHealthStatus, &r.apiCallCounter, &r.apiCallDuration,
+		&r.statusUpdateCounter, &r.conditionCounter, &r.progressGauge)
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -236,21 +269,74 @@ func (r *JIRASyncReconciler) initializeSync(ctx context.Context, jiraSync *opera
 	log := r.Log.WithValues("jirasync", client.ObjectKeyFromObject(jiraSync))
 	log.Info("Initializing JIRASync")
 
+	// Set initialization progress
+	if err := r.StatusManager.UpdateProgress(ctx, jiraSync, 10, "Validating sync specification", StageInitialization); err != nil {
+		log.Error(err, "Failed to update initialization progress")
+	}
+
 	// Validate the sync specification
 	if err := r.validateSyncSpec(&jiraSync.Spec); err != nil {
-		r.recordError(jiraSync, err)
-		return r.updateStatus(ctx, jiraSync, PhaseFailed, "Validation failed: "+err.Error())
-	}
-
-	// Initialize statistics
-	if jiraSync.Status.SyncStats == nil {
-		jiraSync.Status.SyncStats = &operatortypes.SyncStats{
-			StartTime: &metav1.Time{Time: time.Now()},
+		update := StatusUpdate{
+			Phase: PhaseFailed,
+			Error: err,
+			Conditions: []metav1.Condition{{
+				Type:    ConditionTypeFailed,
+				Status:  metav1.ConditionTrue,
+				Reason:  ReasonValidationFailed,
+				Message: "Sync specification validation failed: " + err.Error(),
+			}},
 		}
+		if err := r.StatusManager.UpdateStatus(ctx, jiraSync, update); err != nil {
+			log.Error(err, "Failed to update status")
+		}
+		r.updateStatusMetrics(jiraSync)
+		return ctrl.Result{}, nil
 	}
 
-	// Set to pending and create the job
-	return r.updateStatus(ctx, jiraSync, PhasePending, "Sync initialized and validated")
+	// Initialize sync state and statistics
+	startTime := time.Now()
+	update := StatusUpdate{
+		Phase: PhasePending,
+		Progress: &ProgressUpdate{
+			Percentage:       &[]int{25}[0],
+			CurrentOperation: "Sync specification validated",
+			Stage:            StageInitialization,
+		},
+		SyncStats: &SyncStatsUpdate{
+			StartTime: &startTime,
+		},
+		SyncState: &SyncStateUpdate{
+			OperationID: fmt.Sprintf("sync-%d", time.Now().Unix()),
+			ConfigHash:  r.StatusManager.GenerateConfigHash(&jiraSync.Spec),
+			Metadata: map[string]string{
+				"syncType":  jiraSync.Spec.SyncType,
+				"initiated": startTime.Format(time.RFC3339),
+			},
+		},
+		Conditions: []metav1.Condition{
+			{
+				Type:    ConditionTypeValidated,
+				Status:  metav1.ConditionTrue,
+				Reason:  ReasonValidating,
+				Message: "Sync specification validated successfully",
+			},
+			{
+				Type:    ConditionTypeReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  ReasonInitializing,
+				Message: "Sync initialized, waiting for scheduling",
+			},
+		},
+		ClearError: true,
+	}
+
+	if err := r.StatusManager.UpdateStatus(ctx, jiraSync, update); err != nil {
+		log.Error(err, "Failed to update status during initialization")
+		return ctrl.Result{}, err
+	}
+
+	r.updateStatusMetrics(jiraSync)
+	return ctrl.Result{}, nil
 }
 
 // handlePending processes a pending sync by triggering API operations
@@ -713,4 +799,31 @@ func (r *JIRASyncReconciler) StartHealthCheckRoutine(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// updateStatusMetrics updates Prometheus metrics based on current status
+func (r *JIRASyncReconciler) updateStatusMetrics(jiraSync *operatortypes.JIRASync) {
+	namespace := jiraSync.Namespace
+	name := jiraSync.Name
+
+	// Update status update counter
+	r.statusUpdateCounter.WithLabelValues(namespace, name, jiraSync.Status.Phase).Inc()
+
+	// Update condition metrics
+	for _, condition := range jiraSync.Status.Conditions {
+		value := 0.0
+		if condition.Status == metav1.ConditionTrue {
+			value = 1.0
+		}
+		r.conditionCounter.WithLabelValues(namespace, name, condition.Type).Set(value)
+	}
+
+	// Update progress metrics
+	if jiraSync.Status.Progress != nil {
+		stage := jiraSync.Status.Progress.Stage
+		if stage == "" {
+			stage = "unknown"
+		}
+		r.progressGauge.WithLabelValues(namespace, name, stage).Set(float64(jiraSync.Status.Progress.Percentage))
+	}
 }
