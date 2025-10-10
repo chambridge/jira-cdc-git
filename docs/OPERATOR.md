@@ -160,34 +160,182 @@ spec:
     branch: "main"
 ```
 
-## Resource Status
+## Resource Status and Monitoring
 
-Monitor sync operations:
+The operator provides comprehensive status reporting for all sync operations with real-time progress tracking and detailed condition management.
+
+### Status Fields
+
+Each JIRASync resource reports detailed status information:
+
+```yaml
+status:
+  phase: "Running"                    # Current operation phase
+  observedGeneration: 1               # Last observed resource generation
+  
+  # Detailed progress tracking
+  progress:
+    percentage: 75                    # Completion percentage (0-100)
+    currentOperation: "sync-issues"   # Current operation being performed
+    totalOperations: 4                # Total operations in sync workflow
+    completedOperations: 3            # Number of completed operations
+    estimatedCompletion: "2024-01-15T10:30:00Z"  # Estimated completion time
+    
+  # Sync operation state
+  syncState:
+    startTime: "2024-01-15T10:00:00Z" # When sync operation started
+    totalIssues: 100                  # Total issues to process
+    processedIssues: 75               # Issues processed so far
+    successfulIssues: 73              # Successfully synced issues
+    failedIssues: 2                   # Failed issue syncs
+    lastSyncTime: "2024-01-15T10:25:00Z"  # Last successful sync operation
+    configHash: "abc123def456"        # Configuration hash for change detection
+    
+  # Error information (if any)
+  lastError: "Rate limit exceeded, retrying in 30s"
+  retryCount: 2                       # Current retry attempt
+  
+  # Kubernetes standard conditions
+  conditions:
+  - type: "Ready"
+    status: "False"
+    reason: "SyncInProgress"
+    message: "Sync operation in progress (75% complete)"
+    lastTransitionTime: "2024-01-15T10:25:00Z"
+  - type: "Processing"
+    status: "True"
+    reason: "SyncActive"
+    message: "Processing issues 76-100"
+    lastTransitionTime: "2024-01-15T10:20:00Z"
+    
+  # Timestamps
+  lastStatusUpdate: "2024-01-15T10:25:30Z"
+```
+
+### Monitoring Commands
+
+Monitor sync operations with detailed status information:
 
 ```bash
-# List all sync resources
+# List all sync resources with basic status
 kubectl get jirasyncs
 
-# Get detailed status
+# Get detailed status with progress information
 kubectl describe jirasync single-issue-sync
 
-# Watch status changes
+# Watch status changes in real-time
 kubectl get jirasyncs -w
+
+# Get status as YAML for detailed inspection
+kubectl get jirasync single-issue-sync -o yaml
+
+# Monitor progress with custom output
+kubectl get jirasyncs -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,PROGRESS:.status.progress.percentage,ISSUES:.status.syncState.processedIssues/.status.syncState.totalIssues
+
+# Watch for specific condition changes
+kubectl get jirasyncs -w -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}'
+```
+
+### Health Status Monitoring
+
+The operator calculates health status based on conditions and sync state:
+
+- **Healthy**: Sync operations completing successfully
+- **Degraded**: High retry count or intermittent failures  
+- **Unhealthy**: Persistent failures or critical errors
+- **Unknown**: Insufficient data to determine health
+
+```bash
+# Check health status via conditions
+kubectl get jirasync -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}'
 ```
 
 ## Resource Phases
 
-- **Pending**: Sync initialized, job creation pending
-- **Running**: Kubernetes job executing sync operation  
-- **Completed**: Sync finished successfully
-- **Failed**: Sync encountered an error
+The operator manages resources through comprehensive lifecycle phases:
+
+- **Pending**: Sync initialized, validation and job creation pending
+- **Running**: Kubernetes job actively executing sync operation  
+- **Completed**: Sync finished successfully, all issues processed
+- **Failed**: Sync encountered unrecoverable error, requires intervention
+
+### Phase Transitions
+
+Resources transition between phases based on operation progress:
+
+```
+Pending → Running → Completed
+    ↓        ↓
+  Failed ← Failed
+```
+
+### Condition Types
+
+The operator sets standard Kubernetes conditions:
+
+- **Ready**: Resource is ready and functioning correctly
+- **Processing**: Active sync operation in progress
+- **Failed**: Sync operation has failed
+- **Progressing**: Long-running operation making progress
+- **Degraded**: Operation experiencing issues but continuing
 
 ## Troubleshooting
+
+### Enhanced Diagnostics with Status Management
+
+The operator provides comprehensive diagnostics through status reporting and observability features.
+
+#### Check Resource Status
+
+```bash
+# Get comprehensive status for a specific resource
+kubectl describe jirasync <resource-name>
+
+# Check current phase and progress
+kubectl get jirasync <resource-name> -o jsonpath='{.status.phase}'
+kubectl get jirasync <resource-name> -o jsonpath='{.status.progress.percentage}'
+
+# View detailed sync state
+kubectl get jirasync <resource-name> -o jsonpath='{.status.syncState}' | jq
+
+# Check for error conditions
+kubectl get jirasync <resource-name> -o jsonpath='{.status.conditions[?(@.type=="Failed")]}' | jq
+
+# Monitor retry attempts
+kubectl get jirasync <resource-name> -o jsonpath='{.status.retryCount}'
+```
+
+#### Status-Based Troubleshooting
+
+**Resource stuck in Pending**:
+1. Check operator logs: `kubectl logs -l app=jira-sync-operator`
+2. Verify conditions: `kubectl get jirasync <name> -o jsonpath='{.status.conditions}' | jq`
+3. Check validation errors in status message
+4. Verify JIRA credentials secret exists
+
+**Processing with No Progress**:
+1. Check current operation: `kubectl get jirasync <name> -o jsonpath='{.status.progress.currentOperation}'`
+2. Monitor processed vs total issues: `kubectl get jirasync <name> -o jsonpath='{.status.syncState.processedIssues}/{.status.syncState.totalIssues}'`
+3. Check for rate limiting: Look for retry messages in `lastError`
+4. Verify API server connectivity if using API integration
+
+**High Retry Count**:
+1. Check last error: `kubectl get jirasync <name> -o jsonpath='{.status.lastError}'`
+2. Review conditions for degraded status
+3. Verify network connectivity and credentials
+4. Check resource quotas and limits
 
 ### Check Operator Logs
 
 ```bash
-kubectl logs -l app=jira-sync-operator
+# Get operator logs with status manager context
+kubectl logs -l app=jira-sync-operator | grep -E "(status|condition|progress)"
+
+# Follow logs in real-time
+kubectl logs -f -l app=jira-sync-operator
+
+# Get logs from specific operator replica
+kubectl logs deployment/jira-sync-operator
 ```
 
 ### Check Job Status
@@ -195,6 +343,9 @@ kubectl logs -l app=jira-sync-operator
 ```bash
 kubectl get jobs -l app=jira-sync
 kubectl logs job/sync-job-name
+
+# Check job status through JIRASync resource
+kubectl get jirasync <name> -o jsonpath='{.status.syncState.startTime}'
 ```
 
 ### Validate CRDs
@@ -202,29 +353,70 @@ kubectl logs job/sync-job-name
 ```bash
 kubectl get crds | grep sync.jira.io
 kubectl describe crd jirasyncs.sync.jira.io
+
+# Verify status subresource is enabled
+kubectl get crd jirasyncs.sync.jira.io -o jsonpath='{.spec.versions[0].subresources}'
+```
+
+### Performance Monitoring
+
+Monitor operator performance using the new status management metrics:
+
+```bash
+# Check reconciliation performance
+kubectl logs -l app=jira-sync-operator | grep "reconciliation completed"
+
+# Monitor status update frequency
+kubectl get events --field-selector involvedObject.kind=JIRASync
+
+# Check for status validation errors
+kubectl logs -l app=jira-sync-operator | grep "status validation"
 ```
 
 ### Common Issues
 
 **Status stays in Pending**:
-- Check operator logs for errors
-- Verify JIRA credentials secret exists
-- Ensure required permissions are granted
+- Check conditions: `kubectl get jirasync <name> -o jsonpath='{.status.conditions[?(@.type=="Ready")]}'`
+- Verify operator logs for validation errors
+- Ensure JIRA credentials secret exists
+- Check RBAC permissions
 
-**Job failures**:
-- Check job logs for specific error details
-- Verify JIRA connectivity and permissions
-- Validate target repository access
+**Sync Progress Stalled**:
+- Monitor progress percentage: `kubectl get jirasync <name> -o jsonpath='{.status.progress.percentage}'`
+- Check current operation: `kubectl get jirasync <name> -o jsonpath='{.status.progress.currentOperation}'`
+- Review rate limiting in `lastError` field
+- Verify API server health (if using API integration)
+
+**Inconsistent Status**:
+- Check for status validation warnings in operator logs
+- Verify `observedGeneration` matches resource generation
+- Review condition transition times for anomalies
 
 **Resource not found**:
 - Ensure CRDs are installed: `kubectl apply -f crds/v1alpha1/`
 - Check API versions match your Kubernetes cluster
+- Verify status subresource is properly configured
 
 **API Integration Issues**:
-- Check operator logs for API client errors
-- Verify API server URL and credentials are correct
-- Test API server connectivity: `curl $API_SERVER_URL/health`
-- Validate API authentication token permissions
+- Check API client errors in operator logs
+- Monitor health status: `curl $API_SERVER_URL/health`
+- Verify authentication credentials
+- Check circuit breaker status in logs
+
+### Event Monitoring
+
+The operator emits Kubernetes events for status changes:
+
+```bash
+# Monitor all operator events
+kubectl get events --field-selector involvedObject.kind=JIRASync
+
+# Watch events in real-time
+kubectl get events --field-selector involvedObject.kind=JIRASync -w
+
+# Check for specific event types
+kubectl get events --field-selector involvedObject.kind=JIRASync,reason=StatusUpdated
+```
 
 ## Testing
 

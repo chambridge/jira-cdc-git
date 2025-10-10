@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -39,13 +40,19 @@ func setupTestReconciler() (*JIRASyncReconciler, client.Client) {
 	// Create mock API client
 	mockAPIClient := apiclient.NewMockAPIClient()
 
+	// Create event recorder and status manager for tests
+	recorder := &record.FakeRecorder{Events: make(chan string, 100)}
+	logger := ctrl.Log.WithName("test")
+	statusManager := NewStatusManager(fakeClient, recorder, logger.WithName("status"))
+
 	// Create reconciler
 	reconciler := &JIRASyncReconciler{
-		Client:    fakeClient,
-		Scheme:    testScheme,
-		Log:       ctrl.Log.WithName("test"),
-		APIHost:   "http://test-api:8080",
-		APIClient: mockAPIClient,
+		Client:        fakeClient,
+		Scheme:        testScheme,
+		Log:           logger,
+		APIHost:       "http://test-api:8080",
+		APIClient:     mockAPIClient,
+		StatusManager: statusManager,
 	}
 
 	// Initialize metrics manually without registration to avoid conflicts in tests
@@ -98,6 +105,31 @@ func setupTestReconciler() (*JIRASyncReconciler, client.Client) {
 			Buckets: prometheus.DefBuckets,
 		},
 		[]string{"endpoint"},
+	)
+
+	// Initialize status-related metrics
+	reconciler.statusUpdateCounter = *prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "test_jirasync_status_updates_total",
+			Help: "Test status update counter",
+		},
+		[]string{"namespace", "name", "phase"},
+	)
+
+	reconciler.conditionCounter = *prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "test_jirasync_conditions",
+			Help: "Test condition gauge",
+		},
+		[]string{"namespace", "name", "type"},
+	)
+
+	reconciler.progressGauge = *prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "test_jirasync_progress_percentage",
+			Help: "Test progress gauge",
+		},
+		[]string{"namespace", "name", "stage"},
 	)
 
 	return reconciler, fakeClient

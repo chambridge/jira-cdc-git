@@ -82,6 +82,21 @@ type JIRASyncStatus struct {
 
 	// The generation observed by the controller
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Progress information for long-running operations
+	Progress *ProgressInfo `json:"progress,omitempty"`
+
+	// Current sync operation state
+	SyncState *SyncState `json:"syncState,omitempty"`
+
+	// Last error message if any
+	LastError string `json:"lastError,omitempty"`
+
+	// Number of consecutive retry attempts
+	RetryCount int `json:"retryCount,omitempty"`
+
+	// Timestamp of last status update
+	LastStatusUpdate *metav1.Time `json:"lastStatusUpdate,omitempty"`
 }
 
 // SyncStats provides statistics about sync operations
@@ -109,6 +124,51 @@ type SyncStats struct {
 type JobReference struct {
 	Name      string `json:"name,omitempty"`
 	Namespace string `json:"namespace,omitempty"`
+}
+
+// ProgressInfo provides detailed progress information
+type ProgressInfo struct {
+	// Current progress percentage (0-100)
+	Percentage int `json:"percentage,omitempty"`
+
+	// Current operation being performed
+	CurrentOperation string `json:"currentOperation,omitempty"`
+
+	// Total number of operations to be completed
+	TotalOperations int `json:"totalOperations,omitempty"`
+
+	// Number of completed operations
+	CompletedOperations int `json:"completedOperations,omitempty"`
+
+	// Estimated completion time
+	EstimatedCompletion *metav1.Time `json:"estimatedCompletion,omitempty"`
+
+	// Processing rate (operations per minute)
+	ProcessingRate float64 `json:"processingRate,omitempty"`
+
+	// Current stage of the sync operation
+	Stage string `json:"stage,omitempty"`
+}
+
+// SyncState provides current state information
+type SyncState struct {
+	// Current sync operation ID
+	OperationID string `json:"operationID,omitempty"`
+
+	// Sync configuration hash for change detection
+	ConfigHash string `json:"configHash,omitempty"`
+
+	// List of issues currently being processed
+	ActiveIssues []string `json:"activeIssues,omitempty"`
+
+	// Last successful sync configuration
+	LastSuccessfulConfig string `json:"lastSuccessfulConfig,omitempty"`
+
+	// Sync operation metadata
+	Metadata map[string]string `json:"metadata,omitempty"`
+
+	// Resource health status
+	HealthStatus string `json:"healthStatus,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -341,6 +401,20 @@ func (in *JIRASyncStatus) DeepCopyInto(out *JIRASyncStatus) {
 		*out = new(JobReference)
 		**out = **in
 	}
+	if in.Progress != nil {
+		in, out := &in.Progress, &out.Progress
+		*out = new(ProgressInfo)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.SyncState != nil {
+		in, out := &in.SyncState, &out.SyncState
+		*out = new(SyncState)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.LastStatusUpdate != nil {
+		in, out := &in.LastStatusUpdate, &out.LastStatusUpdate
+		*out = (*in).DeepCopy()
+	}
 }
 
 // DeepCopy copies the receiver, creating a new JIRASyncStatus.
@@ -560,6 +634,52 @@ func (in *CredentialRefs) DeepCopy() *CredentialRefs {
 		return nil
 	}
 	out := new(CredentialRefs)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto for ProgressInfo
+func (in *ProgressInfo) DeepCopyInto(out *ProgressInfo) {
+	*out = *in
+	if in.EstimatedCompletion != nil {
+		in, out := &in.EstimatedCompletion, &out.EstimatedCompletion
+		*out = (*in).DeepCopy()
+	}
+}
+
+// DeepCopy copies the receiver, creating a new ProgressInfo.
+func (in *ProgressInfo) DeepCopy() *ProgressInfo {
+	if in == nil {
+		return nil
+	}
+	out := new(ProgressInfo)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto for SyncState
+func (in *SyncState) DeepCopyInto(out *SyncState) {
+	*out = *in
+	if in.ActiveIssues != nil {
+		in, out := &in.ActiveIssues, &out.ActiveIssues
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.Metadata != nil {
+		in, out := &in.Metadata, &out.Metadata
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
+}
+
+// DeepCopy copies the receiver, creating a new SyncState.
+func (in *SyncState) DeepCopy() *SyncState {
+	if in == nil {
+		return nil
+	}
+	out := new(SyncState)
 	in.DeepCopyInto(out)
 	return out
 }
