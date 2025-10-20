@@ -68,12 +68,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Setup APIServer controller
+	apiServerReconciler := operatorcontrollers.NewAPIServerReconciler(mgr)
+	if err = apiServerReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "APIServer")
+		os.Exit(1)
+	}
+
 	// Setup JIRASync controller
 	jiraSyncReconciler := operatorcontrollers.NewJIRASyncReconciler(mgr, apiServerHost)
 	if err = jiraSyncReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "JIRASync")
 		os.Exit(1)
 	}
+
+	// Start health check routine for circuit breaker recovery
+	ctx := ctrl.SetupSignalHandler()
+	jiraSyncReconciler.StartHealthCheckRoutine(ctx)
 
 	// Add health and readiness checks
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -93,7 +104,7 @@ func main() {
 		"apiServerHost", apiServerHost,
 	)
 
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}

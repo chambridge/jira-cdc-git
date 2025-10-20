@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "jira-sync-operator.fullname" . }}
+  namespace: {{ include "jira-sync-operator.namespace" . }}
+  labels:
+    {{- include "jira-sync-operator.labels" . | nindent 4 }}
+  {{- with .Values.operator.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.operator.replicaCount }}
+  strategy:
+    type: {{ .Values.updateStrategy.type }}
+    {{- if eq .Values.updateStrategy.type "RollingUpdate" }}
+    rollingUpdate:
+      {{- toYaml .Values.updateStrategy.rollingUpdate | nindent 6 }}
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "jira-sync-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "jira-sync-operator.selectorLabels" . | nindent 8 }}
+        {{- include "jira-sync-operator.labels" . | nindent 8 }}
+      annotations:
+        kubectl.kubernetes.io/default-container: operator
+        {{- with .Values.gitops.annotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "jira-sync-operator.serviceAccountName" . }}
+      securityContext:
+        {{- include "jira-sync-operator.podSecurityContext" . | nindent 8 }}
+      containers:
+      - name: operator
+        image: {{ include "jira-sync-operator.image" . }}
+        imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
+        command:
+        - /bin/operator
+        args:
+        - --metrics-bind-address=0.0.0.0:{{ .Values.metrics.port }}
+        - --health-probe-bind-address=0.0.0.0:{{ .Values.health.port }}
+        - --api-server-host={{ .Values.apiServer.host }}
+        {{- if .Values.operator.leaderElection.enabled }}
+        - --leader-elect
+        {{- end }}
+        {{- if .Values.operator.env.developmentMode }}
+        - --zap-devel
+        {{- end }}
+        - --zap-log-level={{ .Values.operator.env.logLevel | lower }}
+        {{- if eq .Values.operator.env.logFormat "json" }}
+        - --zap-encoder=json
+        {{- end }}
+        ports:
+        {{- if .Values.metrics.enabled }}
+        - name: metrics
+          containerPort: {{ .Values.metrics.port }}
+          protocol: TCP
+        {{- end }}
+        {{- if .Values.health.enabled }}
+        - name: health
+          containerPort: {{ .Values.health.port }}
+          protocol: TCP
+        {{- end }}
+        {{- if .Values.health.enabled }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          {{- toYaml .Values.health.livenessProbe | nindent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          {{- toYaml .Values.health.readinessProbe | nindent 10 }}
+        {{- end }}
+        resources:
+          {{- include "jira-sync-operator.resources" . | nindent 10 }}
+        securityContext:
+          {{- include "jira-sync-operator.securityContext" . | nindent 10 }}
+        env:
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: OPERATOR_NAME
+          value: {{ include "jira-sync-operator.fullname" . }}
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        {{- if .Values.apiServer.auth.enabled }}
+        - name: API_SERVER_AUTH_TYPE
+          value: {{ .Values.apiServer.auth.type }}
+        - name: API_SERVER_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.apiServer.auth.secretName }}
+              key: {{ .Values.apiServer.auth.secretKey }}
+        {{- end }}
+        {{- if .Values.operator.leaderElection.enabled }}
+        - name: LEADER_ELECTION_LEASE_DURATION
+          value: {{ .Values.operator.leaderElection.leaseDuration }}
+        - name: LEADER_ELECTION_RENEW_DEADLINE
+          value: {{ .Values.operator.leaderElection.renewDeadline }}
+        - name: LEADER_ELECTION_RETRY_PERIOD
+          value: {{ .Values.operator.leaderElection.retryPeriod }}
+        {{- end }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      {{- with .Values.operator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30

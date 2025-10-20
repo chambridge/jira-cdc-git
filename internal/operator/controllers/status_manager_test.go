@@ -200,9 +200,9 @@ func TestStatusManager_UpdateProgress(t *testing.T) {
 	assert.Equal(t, "Syncing issues", jiraSync.Status.Progress.CurrentOperation)
 	assert.Equal(t, StageExecution, jiraSync.Status.Progress.Stage)
 
-	// Verify progressing condition was set
+	// Verify processing condition was set
 	assert.Len(t, jiraSync.Status.Conditions, 1)
-	assert.Equal(t, ConditionTypeProgressing, jiraSync.Status.Conditions[0].Type)
+	assert.Equal(t, ConditionTypeProcessing, jiraSync.Status.Conditions[0].Type)
 	assert.Equal(t, metav1.ConditionTrue, jiraSync.Status.Conditions[0].Status)
 	assert.Equal(t, ReasonProcessing, jiraSync.Status.Conditions[0].Reason)
 	assert.Contains(t, jiraSync.Status.Conditions[0].Message, "Syncing issues")

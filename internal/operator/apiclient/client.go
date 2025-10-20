@@ -30,6 +30,13 @@ type APIClient interface {
 
 	// HealthCheck performs a health check against the API server
 	HealthCheck(ctx context.Context) error
+
+	// DirectHealthCheck performs a health check that bypasses the circuit breaker
+	// and resets the circuit breaker state if successful
+	DirectHealthCheck(ctx context.Context) error
+
+	// WithHost creates a new client with the specified host URL
+	WithHost(hostURL string) APIClient
 }
 
 // Client implements the APIClient interface
@@ -226,6 +233,47 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check failed with status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// DirectHealthCheck performs a health check that bypasses the circuit breaker
+// This is used for circuit breaker recovery - if this succeeds, it resets the circuit breaker
+func (c *Client) DirectHealthCheck(ctx context.Context) error {
+	endpoint := "/api/v1/health"
+	fullURL := c.baseURL + endpoint
+
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create health check request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "jira-sync-operator/v0.4.1")
+	c.addAuthentication(req)
+
+	c.log.V(1).Info("Performing direct health check (bypassing circuit breaker)", "url", fullURL)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("direct health check request failed: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			c.log.Error(err, "Failed to close health check response body")
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("direct health check failed with status %d", resp.StatusCode)
+	}
+
+	// If health check succeeds, reset the circuit breaker
+	if c.circuitBreaker.state == CircuitOpen {
+		c.circuitBreaker.state = CircuitClosed
+		c.circuitBreaker.failureCount = 0
+		c.log.Info("Circuit breaker reset due to successful health check")
 	}
 
 	return nil
@@ -449,5 +497,17 @@ func ConvertJIRASyncToAPIRequest(jiraSync *operatortypes.JIRASync) (interface{},
 
 	default:
 		return nil, "", fmt.Errorf("unsupported sync type: %s", jiraSync.Spec.SyncType)
+	}
+}
+
+// WithHost creates a new client with the specified host URL
+func (c *Client) WithHost(hostURL string) APIClient {
+	return &Client{
+		baseURL:        hostURL,
+		httpClient:     c.httpClient,
+		log:            c.log,
+		authToken:      c.authToken,
+		authType:       c.authType,
+		circuitBreaker: c.circuitBreaker, // Share the same circuit breaker instance
 	}
 }

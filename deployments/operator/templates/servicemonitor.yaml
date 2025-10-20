@@ -1,0 +1,22 @@
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "jira-sync-operator.fullname" . }}
+  namespace: {{ .Values.metrics.serviceMonitor.namespace | default (include "jira-sync-operator.namespace" .) }}
+  labels:
+    {{- include "jira-sync-operator.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "jira-sync-operator.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: metrics
+  endpoints:
+  - port: metrics
+    path: {{ .Values.metrics.path }}
+    interval: {{ .Values.metrics.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+{{- end }}

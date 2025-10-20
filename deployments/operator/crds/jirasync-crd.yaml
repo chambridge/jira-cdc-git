@@ -1,0 +1,338 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: jirasyncs.sync.jira.io
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+    api-approved.kubernetes.io: "https://github.com/chambrid/jira-cdc-git/blob/main/docs/api-review.md"
+  labels:
+    app.kubernetes.io/name: jira-sync-operator
+    app.kubernetes.io/component: crd
+    app.kubernetes.io/version: v0.4.1
+spec:
+  group: sync.jira.io
+  names:
+    kind: JIRASync
+    listKind: JIRASyncList
+    plural: jirasyncs
+    singular: jirasync
+    shortNames:
+    - jsync
+    - js
+    categories:
+    - jirasync
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values.'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to.'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: JIRASyncSpec defines the desired state of JIRASync
+            type: object
+            required:
+            - syncType
+            - target
+            - destination
+            properties:
+              syncType:
+                description: Type of sync operation to perform
+                type: string
+                enum: ["single", "batch", "jql", "incremental"]
+              target:
+                description: Target specification for sync operation
+                type: object
+                properties:
+                  issueKeys:
+                    description: List of specific JIRA issue keys to sync (for single/batch)
+                    type: array
+                    minItems: 1
+                    maxItems: 100
+                    items:
+                      type: string
+                      pattern: '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'
+                      minLength: 4
+                      maxLength: 50
+                  jqlQuery:
+                    description: JQL query to select issues for sync
+                    type: string
+                    minLength: 1
+                    maxLength: 1000
+                    pattern: '^[^;\\\\<>"\x00-\x1f]*$'
+                  projectKey:
+                    description: JIRA project key for project-wide sync
+                    type: string
+                    pattern: '^[A-Z][A-Z0-9]*$'
+                    minLength: 2
+                    maxLength: 20
+                  epicKey:
+                    description: EPIC key for epic-focused sync
+                    type: string
+                    pattern: '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'
+                    minLength: 4
+                    maxLength: 50
+                oneOf:
+                - required: ["issueKeys"]
+                - required: ["jqlQuery"]
+                - required: ["projectKey"]
+                - required: ["epicKey"]
+              destination:
+                description: Git repository destination configuration
+                type: object
+                required:
+                - repository
+                properties:
+                  repository:
+                    description: Git repository URL (HTTPS/SSH only for security)
+                    type: string
+                    minLength: 1
+                    maxLength: 500
+                    # Enhanced security validation - only allow safe protocols
+                    pattern: '^(https://[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(\\.git)?|git@[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]:[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(\\.git)?)$'
+                  branch:
+                    description: Target Git branch
+                    type: string
+                    default: "main"
+                    minLength: 1
+                    maxLength: 100
+                    # Git branch name validation
+                    pattern: '^[a-zA-Z0-9][a-zA-Z0-9/_.-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$'
+                  path:
+                    description: Path within repository for issue files (security-validated)
+                    type: string
+                    default: "/"
+                    minLength: 1
+                    maxLength: 200
+                    # Security: prevent directory traversal
+                    pattern: '^(/|(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+)/?$'
+              schedule:
+                description: Cron expression for scheduled syncs (must be valid cron format)
+                type: string
+                # Validate cron expression format (5 or 6 fields)
+                pattern: '^(@(annually|yearly|monthly|weekly|daily|hourly|reboot))|(@every (\\d+(ns|us|µs|ms|s|m|h))+)|(((\\d+,)+\\d+|(\\d+(/|-)\\d+)|\\d+|\\*) +){4,5}((\\d+,)+\\d+|(\\d+(/|-)\\d+)|\\d+|\\*)$'
+                minLength: 9  # Minimum valid cron
+                maxLength: 100
+              retryPolicy:
+                description: Retry configuration for failed sync operations
+                type: object
+                properties:
+                  maxRetries:
+                    description: Maximum number of retry attempts
+                    type: integer
+                    default: 3
+                    minimum: 0
+                    maximum: 10
+                  backoffMultiplier:
+                    description: Exponential backoff multiplier
+                    type: number
+                    default: 2.0
+                    minimum: 1.0
+                    maximum: 10.0
+                  initialDelay:
+                    description: Initial delay before first retry (in seconds)
+                    type: integer
+                    default: 30
+                    minimum: 1
+                    maximum: 3600  # Max 1 hour
+              priority:
+                description: Sync operation priority for scheduling
+                type: string
+                enum: ["low", "normal", "high", "urgent"]
+                default: "normal"
+              timeout:
+                description: Maximum execution time for sync operation (in seconds)
+                type: integer
+                default: 1800  # 30 minutes
+                minimum: 60     # 1 minute minimum
+                maximum: 7200   # 2 hours maximum
+              labels:
+                description: Additional labels for operational tracking
+                type: object
+                additionalProperties:
+                  type: string
+                  maxLength: 63
+                  pattern: '^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$'
+                maxProperties: 10
+          status:
+            description: JIRASyncStatus defines the observed state of JIRASync
+            type: object
+            properties:
+              phase:
+                description: Current phase of the sync operation
+                type: string
+                enum: ["Pending", "Running", "Completed", "Failed", "Scheduled", "Cancelled"]
+              conditions:
+                description: Conditions represent the latest available observations
+                type: array
+                items:
+                  type: object
+                  required:
+                  - type
+                  - status
+                  - lastTransitionTime
+                  properties:
+                    type:
+                      description: Type of condition
+                      type: string
+                      enum: ["Ready", "Processing", "Failed", "Validated", "Scheduled"]
+                    status:
+                      description: Status of the condition (True, False, Unknown)
+                      type: string
+                      enum: ["True", "False", "Unknown"]
+                    reason:
+                      description: Machine-readable reason for the condition
+                      type: string
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: '^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$'
+                    message:
+                      description: Human-readable message for the condition
+                      type: string
+                      maxLength: 32768
+                    lastTransitionTime:
+                      description: Last time the condition transitioned
+                      type: string
+                      format: date-time
+                    observedGeneration:
+                      description: Generation of resource when condition was last updated
+                      type: integer
+                      minimum: 0
+              syncStats:
+                description: Statistics about the sync operation
+                type: object
+                properties:
+                  totalIssues:
+                    description: Total number of issues to be synced
+                    type: integer
+                    minimum: 0
+                    maximum: 100000  # Sanity limit
+                  processedIssues:
+                    description: Number of issues successfully processed
+                    type: integer
+                    minimum: 0
+                  failedIssues:
+                    description: Number of issues that failed to sync
+                    type: integer
+                    minimum: 0
+                  skippedIssues:
+                    description: Number of issues skipped (unchanged)
+                    type: integer
+                    minimum: 0
+                  lastSyncTime:
+                    description: Timestamp of last successful sync
+                    type: string
+                    format: date-time
+                  duration:
+                    description: Duration of the last sync operation
+                    type: string
+                    pattern: '^\\d+(\\.\\d+)?(ns|us|µs|ms|s|m|h)$'
+                  startTime:
+                    description: Start time of current sync operation
+                    type: string
+                    format: date-time
+                  estimatedCompletion:
+                    description: Estimated completion time
+                    type: string
+                    format: date-time
+              jobRef:
+                description: Reference to the Kubernetes Job executing this sync
+                type: object
+                required:
+                - name
+                - namespace
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                    maxLength: 253
+                  namespace:
+                    type: string
+                    minLength: 1
+                    maxLength: 63
+                  uid:
+                    description: UID of the referenced Job
+                    type: string
+                    pattern: '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'
+              observedGeneration:
+                description: The generation observed by the controller
+                type: integer
+                minimum: 0
+              retryCount:
+                description: Number of retry attempts made
+                type: integer
+                minimum: 0
+                maximum: 10
+              lastErrorMessage:
+                description: Last error message if sync failed
+                type: string
+                maxLength: 1024
+              resourceUsage:
+                description: Resource usage statistics
+                type: object
+                properties:
+                  cpuTime:
+                    description: Total CPU time used (in CPU-seconds)
+                    type: string
+                    pattern: '^\\d+(\\.\\d+)?$'
+                  memoryPeak:
+                    description: Peak memory usage
+                    type: string
+                    pattern: '^\\d+(\\.\\d+)?(Ki|Mi|Gi|Ti)?$'
+                  networkIO:
+                    description: Network I/O statistics
+                    type: object
+                    properties:
+                      bytesReceived:
+                        type: integer
+                        minimum: 0
+                      bytesSent:
+                        type: integer
+                        minimum: 0
+    additionalPrinterColumns:
+    - name: Type
+      type: string
+      description: Sync operation type
+      jsonPath: .spec.syncType
+    - name: Phase
+      type: string
+      description: Current phase
+      jsonPath: .status.phase
+    - name: Progress
+      type: string
+      description: Progress (processed/total)
+      jsonPath: .status.syncStats.processedIssues/.status.syncStats.totalIssues
+      format: byte
+    - name: Priority
+      type: string
+      description: Operation priority
+      jsonPath: .spec.priority
+    - name: Duration
+      type: string
+      description: Last sync duration
+      jsonPath: .status.syncStats.duration
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+    subresources:
+      status: {}
+      scale:
+        specReplicasPath: .spec.replicas
+        statusReplicasPath: .status.replicas
+  # Conversion strategy for future versions
+  conversion:
+    strategy: None  # Will use webhook conversion in v1beta1

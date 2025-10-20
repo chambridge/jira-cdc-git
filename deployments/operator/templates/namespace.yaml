@@ -1,0 +1,13 @@
+{{- if .Values.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "jira-sync-operator.namespace" . }}
+  labels:
+    {{- include "jira-sync-operator.labels" . | nindent 4 }}
+    name: {{ include "jira-sync-operator.namespace" . }}
+  {{- with .Values.namespace.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

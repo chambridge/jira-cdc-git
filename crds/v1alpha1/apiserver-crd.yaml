@@ -1,0 +1,261 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: apiservers.sync.jira.io
+  annotations:
+    api-approved.kubernetes.io: "false"
+    controller-gen.kubebuilder.io/version: v0.15.0
+spec:
+  group: sync.jira.io
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            type: object
+            required:
+            - jiraCredentials
+            - image
+            properties:
+              jiraCredentials:
+                type: object
+                description: "JIRA connection credentials"
+                required:
+                - secretRef
+                properties:
+                  secretRef:
+                    type: object
+                    description: "Reference to secret containing JIRA credentials"
+                    required:
+                    - name
+                    properties:
+                      name:
+                        type: string
+                        description: "Name of the secret containing base-url, email, and token/pat keys"
+                        minLength: 1
+                      namespace:
+                        type: string
+                        description: "Namespace of the secret (defaults to APIServer namespace)"
+              image:
+                type: object
+                description: "Container image configuration"
+                required:
+                - repository
+                - tag
+                properties:
+                  repository:
+                    type: string
+                    description: "Container image repository"
+                    pattern: '^[a-z0-9._/-]+$'
+                    minLength: 1
+                  tag:
+                    type: string
+                    description: "Container image tag"
+                    pattern: '^[a-zA-Z0-9._-]+$'
+                    minLength: 1
+                  pullPolicy:
+                    type: string
+                    description: "Image pull policy"
+                    enum: ["Always", "Never", "IfNotPresent"]
+                    default: "IfNotPresent"
+              replicas:
+                type: integer
+                description: "Number of API server replicas"
+                minimum: 1
+                maximum: 10
+                default: 2
+              resources:
+                type: object
+                description: "Resource requirements for API server"
+                properties:
+                  requests:
+                    type: object
+                    properties:
+                      cpu:
+                        type: string
+                        pattern: '^[0-9]+m?$'
+                      memory:
+                        type: string
+                        pattern: '^[0-9]+[EPTGMK]i?$'
+                  limits:
+                    type: object
+                    properties:
+                      cpu:
+                        type: string
+                        pattern: '^[0-9]+m?$'
+                      memory:
+                        type: string
+                        pattern: '^[0-9]+[EPTGMK]i?$'
+              config:
+                type: object
+                description: "API server configuration"
+                properties:
+                  logLevel:
+                    type: string
+                    description: "Log level for API server"
+                    enum: ["DEBUG", "INFO", "WARN", "ERROR"]
+                    default: "INFO"
+                  logFormat:
+                    type: string
+                    description: "Log format for API server"
+                    enum: ["json", "console"]
+                    default: "json"
+                  port:
+                    type: integer
+                    description: "API server port"
+                    minimum: 1024
+                    maximum: 65535
+                    default: 8080
+                  enableJobs:
+                    type: boolean
+                    description: "Enable Kubernetes job creation"
+                    default: true
+                  jobImage:
+                    type: string
+                    description: "Container image for sync jobs"
+                    pattern: '^[a-z0-9._/-]+:[a-zA-Z0-9._-]+$'
+                  safeModeEnabled:
+                    type: boolean
+                    description: "Enable safe mode for testing"
+                    default: false
+              service:
+                type: object
+                description: "Service configuration"
+                properties:
+                  type:
+                    type: string
+                    description: "Kubernetes service type"
+                    enum: ["ClusterIP", "NodePort", "LoadBalancer"]
+                    default: "ClusterIP"
+                  port:
+                    type: integer
+                    description: "Service port"
+                    minimum: 1
+                    maximum: 65535
+                    default: 80
+                  annotations:
+                    type: object
+                    description: "Service annotations"
+                    additionalProperties:
+                      type: string
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+                description: "Current phase of the API server"
+                enum: ["Pending", "Creating", "Running", "Failed", "Deleting"]
+              conditions:
+                type: array
+                description: "Current conditions of the API server"
+                items:
+                  type: object
+                  required:
+                  - type
+                  - status
+                  properties:
+                    type:
+                      type: string
+                      description: "Type of condition"
+                    status:
+                      type: string
+                      description: "Status of condition"
+                      enum: ["True", "False", "Unknown"]
+                    reason:
+                      type: string
+                      description: "Reason for condition"
+                    message:
+                      type: string
+                      description: "Human readable message"
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+                      description: "Last time condition transitioned"
+              deploymentStatus:
+                type: object
+                description: "Status of managed Deployment"
+                properties:
+                  replicas:
+                    type: integer
+                    description: "Total number of replicas"
+                  readyReplicas:
+                    type: integer
+                    description: "Number of ready replicas"
+                  updatedReplicas:
+                    type: integer
+                    description: "Number of updated replicas"
+              serviceStatus:
+                type: object
+                description: "Status of managed Service"
+                properties:
+                  clusterIP:
+                    type: string
+                    description: "Cluster IP of the service"
+                  ports:
+                    type: array
+                    description: "Service ports"
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        port:
+                          type: integer
+                        targetPort:
+                          type: integer
+              endpoint:
+                type: string
+                description: "API server endpoint URL"
+              healthStatus:
+                type: object
+                description: "Health status of API server"
+                properties:
+                  healthy:
+                    type: boolean
+                    description: "Whether API server is healthy"
+                  lastCheck:
+                    type: string
+                    format: date-time
+                    description: "Last health check time"
+                  message:
+                    type: string
+                    description: "Health check message"
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Phase
+      type: string
+      description: Current phase
+      jsonPath: .status.phase
+    - name: Replicas
+      type: integer
+      description: Number of replicas
+      jsonPath: .spec.replicas
+    - name: Ready
+      type: integer
+      description: Ready replicas
+      jsonPath: .status.deploymentStatus.readyReplicas
+    - name: Endpoint
+      type: string
+      description: API endpoint
+      jsonPath: .status.endpoint
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: apiservers
+    singular: apiserver
+    kind: APIServer
+    shortNames:
+    - api

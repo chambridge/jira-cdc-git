@@ -1,0 +1,380 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: jiraprojects.sync.jira.io
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+    api-approved.kubernetes.io: "https://github.com/chambrid/jira-cdc-git/blob/main/docs/api-review.md"
+  labels:
+    app.kubernetes.io/name: jira-sync-operator
+    app.kubernetes.io/component: crd
+    app.kubernetes.io/version: v0.4.1
+spec:
+  group: sync.jira.io
+  names:
+    kind: JIRAProject
+    listKind: JIRAProjectList
+    plural: jiraprojects
+    singular: jiraproject
+    shortNames:
+    - jproj
+    - jp
+    categories:
+    - jirasync
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object.'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents.'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: JIRAProjectSpec defines the desired state of JIRAProject
+            type: object
+            required:
+            - projectKey
+            - jiraInstance
+            - destination
+            properties:
+              projectKey:
+                description: JIRA project key (must be valid JIRA project format)
+                type: string
+                pattern: '^[A-Z][A-Z0-9]*$'
+                minLength: 2
+                maxLength: 20
+              jiraInstance:
+                description: JIRA instance URL (must be HTTPS for security)
+                type: string
+                format: uri
+                pattern: '^https://[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]'
+                minLength: 10
+                maxLength: 200
+              syncConfiguration:
+                description: Configuration for project sync operations
+                type: object
+                properties:
+                  includeRelationships:
+                    description: Whether to sync issue relationships as symbolic links
+                    type: boolean
+                    default: true
+                  issueTypes:
+                    description: List of issue types to include (empty = all)
+                    type: array
+                    maxItems: 50  # Production limit
+                    items:
+                      type: string
+                      minLength: 1
+                      maxLength: 100
+                      pattern: '^[a-zA-Z0-9 _-]+$'  # Safe characters only
+                  customFields:
+                    description: List of custom fields to include in sync
+                    type: array
+                    maxItems: 100  # Production limit
+                    items:
+                      type: string
+                      minLength: 1
+                      maxLength: 200
+                      pattern: '^[a-zA-Z0-9 _.-]+$'  # Safe field names
+                  excludeStatuses:
+                    description: List of statuses to exclude from sync
+                    type: array
+                    maxItems: 50
+                    items:
+                      type: string
+                      minLength: 1
+                      maxLength: 100
+                      pattern: '^[a-zA-Z0-9 _-]+$'
+                  syncFrequency:
+                    description: How often to perform full project sync (cron format)
+                    type: string
+                    pattern: '^(@(annually|yearly|monthly|weekly|daily|hourly|reboot))|(@every (\\d+(ns|us|µs|ms|s|m|h))+)|(((\\d+,)+\\d+|(\\d+(/|-)\\d+)|\\d+|\\*) +){4,5}((\\d+,)+\\d+|(\\d+(/|-)\\d+)|\\d+|\\*)$'
+                    minLength: 9
+                    maxLength: 100
+                  incrementalSync:
+                    description: Enable incremental sync for this project
+                    type: boolean
+                    default: true
+                  maxIssuesPerSync:
+                    description: Maximum number of issues to sync in one operation
+                    type: integer
+                    default: 1000
+                    minimum: 1
+                    maximum: 10000  # Production safety limit
+                  retentionPolicy:
+                    description: Data retention policy for synced issues
+                    type: object
+                    properties:
+                      keepDeletedIssues:
+                        description: Keep files for deleted JIRA issues
+                        type: boolean
+                        default: false
+                      retentionDays:
+                        description: Days to keep deleted issue files
+                        type: integer
+                        default: 30
+                        minimum: 1
+                        maximum: 365
+              destination:
+                description: Git repository destination configuration
+                type: object
+                required:
+                - repository
+                properties:
+                  repository:
+                    description: Git repository URL (HTTPS/SSH only for security)
+                    type: string
+                    minLength: 1
+                    maxLength: 500
+                    pattern: '^(https://[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(\\.git)?|git@[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]:[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(\\.git)?)$'
+                  branch:
+                    description: Target Git branch
+                    type: string
+                    default: "main"
+                    minLength: 1
+                    maxLength: 100
+                    pattern: '^[a-zA-Z0-9][a-zA-Z0-9/_.-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$'
+                  path:
+                    description: Path within repository for this project
+                    type: string
+                    default: "/"
+                    minLength: 1
+                    maxLength: 200
+                    pattern: '^(/|(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+)/?$'
+              credentials:
+                description: Reference to credentials for JIRA and Git access
+                type: object
+                properties:
+                  jiraSecretRef:
+                    description: Secret containing JIRA credentials
+                    type: object
+                    required:
+                    - name
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 253
+                        pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                      key:
+                        type: string
+                        default: "credentials"
+                        minLength: 1
+                        maxLength: 253
+                        pattern: '^[a-zA-Z0-9._-]+$'
+                  gitSecretRef:
+                    description: Secret containing Git credentials
+                    type: object
+                    required:
+                    - name
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 253
+                        pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                      key:
+                        type: string
+                        default: "credentials"
+                        minLength: 1
+                        maxLength: 253
+                        pattern: '^[a-zA-Z0-9._-]+$'
+              operationalConfig:
+                description: Operational configuration for monitoring and management
+                type: object
+                properties:
+                  enableMetrics:
+                    description: Enable detailed metrics collection
+                    type: boolean
+                    default: true
+                  enableAlerting:
+                    description: Enable alerting for sync failures
+                    type: boolean
+                    default: true
+                  contactEmail:
+                    description: Contact email for operational issues
+                    type: string
+                    format: email
+                    maxLength: 254
+                  team:
+                    description: Team responsible for this project
+                    type: string
+                    minLength: 1
+                    maxLength: 100
+                    pattern: '^[a-zA-Z0-9 _.-]+$'
+          status:
+            description: JIRAProjectStatus defines the observed state of JIRAProject
+            type: object
+            properties:
+              phase:
+                description: Current phase of project management
+                type: string
+                enum: ["Pending", "Active", "Syncing", "Error", "Suspended", "Archived"]
+              conditions:
+                description: Conditions represent the latest available observations
+                type: array
+                items:
+                  type: object
+                  required:
+                  - type
+                  - status
+                  - lastTransitionTime
+                  properties:
+                    type:
+                      description: Type of condition
+                      type: string
+                      enum: ["Ready", "Syncing", "Error", "ConfigValid", "CredentialsValid", "Connected"]
+                    status:
+                      description: Status of the condition
+                      type: string
+                      enum: ["True", "False", "Unknown"]
+                    reason:
+                      type: string
+                      maxLength: 1024
+                      pattern: '^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$'
+                    message:
+                      type: string
+                      maxLength: 32768
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+                    observedGeneration:
+                      type: integer
+                      minimum: 0
+              projectInfo:
+                description: Information about the JIRA project
+                type: object
+                properties:
+                  projectName:
+                    description: Full name of the JIRA project
+                    type: string
+                    maxLength: 200
+                  projectType:
+                    description: Type of JIRA project
+                    type: string
+                    maxLength: 50
+                  lastUpdated:
+                    description: Last time project info was updated
+                    type: string
+                    format: date-time
+              syncStats:
+                description: Aggregated sync statistics for this project
+                type: object
+                properties:
+                  totalIssues:
+                    description: Total number of issues in this project
+                    type: integer
+                    minimum: 0
+                  syncedIssues:
+                    description: Number of issues successfully synced
+                    type: integer
+                    minimum: 0
+                  lastSyncTime:
+                    description: Timestamp of last successful project sync
+                    type: string
+                    format: date-time
+                  lastFullSyncTime:
+                    description: Timestamp of last full project sync
+                    type: string
+                    format: date-time
+                  avgSyncDuration:
+                    description: Average sync duration for this project
+                    type: string
+                    pattern: '^\\d+(\\.\\d+)?(ns|us|µs|ms|s|m|h)$'
+                  syncFrequencyActual:
+                    description: Actual sync frequency observed
+                    type: string
+                    pattern: '^\\d+(\\.\\d+)?(ns|us|µs|ms|s|m|h)$'
+              activeSyncs:
+                description: Currently active sync operations for this project
+                type: array
+                maxItems: 100  # Prevent unbounded growth
+                items:
+                  type: object
+                  required:
+                  - name
+                  - namespace
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 253
+                    namespace:
+                      type: string
+                      minLength: 1
+                      maxLength: 63
+                    syncType:
+                      type: string
+                      enum: ["single", "batch", "jql", "incremental"]
+                    startTime:
+                      type: string
+                      format: date-time
+                    estimatedCompletion:
+                      type: string
+                      format: date-time
+              healthScore:
+                description: Overall health score of project sync operations (0-100)
+                type: integer
+                minimum: 0
+                maximum: 100
+              observedGeneration:
+                description: The generation observed by the controller
+                type: integer
+                minimum: 0
+              lastError:
+                description: Last error encountered
+                type: object
+                properties:
+                  message:
+                    type: string
+                    maxLength: 1024
+                  timestamp:
+                    type: string
+                    format: date-time
+                  retryCount:
+                    type: integer
+                    minimum: 0
+    additionalPrinterColumns:
+    - name: Project
+      type: string
+      description: JIRA Project Key
+      jsonPath: .spec.projectKey
+    - name: Instance
+      type: string
+      description: JIRA Instance
+      jsonPath: .spec.jiraInstance
+      priority: 1
+    - name: Phase
+      type: string
+      description: Current phase
+      jsonPath: .status.phase
+    - name: Issues
+      type: integer
+      description: Total issues in project
+      jsonPath: .status.syncStats.totalIssues
+    - name: Health
+      type: integer
+      description: Health score (0-100)
+      jsonPath: .status.healthScore
+    - name: Last Sync
+      type: date
+      description: Last sync time
+      jsonPath: .status.syncStats.lastSyncTime
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+    subresources:
+      status: {}
+  conversion:
+    strategy: None

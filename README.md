@@ -11,6 +11,8 @@ This system provides automated synchronization of JIRA issues and their relation
 - **Real-time Sync**: Continuous synchronization of JIRA data changes
 - **Git-based Storage**: Issues stored as files with relationships as symbolic links
 - **Kubernetes Native**: Designed for deployment on Kubernetes with operator support
+- **Comprehensive Status Management**: Real-time progress tracking, condition monitoring, and health status calculation
+- **Advanced Observability**: Prometheus metrics, automated troubleshooting, and status reporting
 - **Flexible Sync Targets**: Support for projects, issue lists, and JQL queries
 - **Rate Limiting**: Built-in JIRA API rate limiting and performance optimization
 - **Web Interface**: Simple UI for managing sync tasks and monitoring
@@ -188,11 +190,12 @@ deployments/          # ✅ Kubernetes deployment manifests (v0.4.1)
 
 ## Current Release: v0.4.1 (Operator and Security Implementation)
 
-**Status**: 🚀 MAJOR FEATURES COMPLETE - Kubernetes Operator and Enterprise Security  
+**Status**: 🚀 MAJOR FEATURES COMPLETE - Kubernetes Operator with Status Management  
 - ✅ **JCG-025**: Custom Resource Definitions (CRDs) - COMPLETED
 - ✅ **JCG-026**: Operator Controller Core Logic - COMPLETED  
 - ✅ **JCG-027**: API Server Integration - COMPLETED
 - ✅ **JCG-028**: RBAC and Security Configuration - COMPLETED
+- ✅ **JCG-029**: Resource Status and Condition Management - COMPLETED
 
 ### Technology Stack
 - **Language**: Go 1.24+
@@ -206,6 +209,8 @@ deployments/          # ✅ Kubernetes deployment manifests (v0.4.1)
 - **Kubernetes**: controller-runtime v0.19.1 for operator functionality
 - **CRDs**: v1alpha1 API with JIRASync, JIRAProject, SyncSchedule resources
 - **Operator**: Production-ready reconciliation with finalizers and retry logic
+- **Status Management**: Comprehensive progress tracking with Kubernetes conditions and health monitoring
+- **Observability**: Prometheus metrics integration with automated troubleshooting and status reporting
 - **API Integration**: Operator integrates with v0.4.0 API server with circuit breaker patterns
 - **Architecture**: Clean interface-based design with implemented Kubernetes operator
 - **Testing**: Comprehensive end-to-end testing with performance benchmarking and always-working code validation
@@ -255,6 +260,11 @@ deployments/          # ✅ Kubernetes deployment manifests (v0.4.1)
    
    # Batch sync with custom concurrency
    ./build/jira-sync sync --jql="Epic Link = PROJ-123" --repo=/path/to/repo --concurrency=8
+   
+   # Monitor sync status with Kubernetes operator (v0.4.1+)
+   kubectl get jirasync my-sync -w
+   kubectl describe jirasync my-sync
+   kubectl get jirasync my-sync -o jsonpath='{.status.progress.percentage}%'
    ```
 
 ### Current Capabilities (v0.3.0)
