@@ -12,6 +12,7 @@ type MockAPIClient struct {
 	TriggerJQLSyncFunc    func(ctx context.Context, request *JQLSyncRequest) (*SyncJobResponse, error)
 	GetJobStatusFunc      func(ctx context.Context, jobID string) (*JobStatusResponse, error)
 	HealthCheckFunc       func(ctx context.Context) error
+	DirectHealthCheckFunc func(ctx context.Context) error
 
 	// Call tracking
 	TriggerSingleSyncCalls []SingleSyncRequest
@@ -19,6 +20,7 @@ type MockAPIClient struct {
 	TriggerJQLSyncCalls    []JQLSyncRequest
 	GetJobStatusCalls      []string
 	HealthCheckCalls       int
+	DirectHealthCheckCalls int
 }
 
 // NewMockAPIClient creates a new mock API client
@@ -114,6 +116,18 @@ func (m *MockAPIClient) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
+// DirectHealthCheck implements APIClient.DirectHealthCheck
+func (m *MockAPIClient) DirectHealthCheck(ctx context.Context) error {
+	m.DirectHealthCheckCalls++
+
+	if m.DirectHealthCheckFunc != nil {
+		return m.DirectHealthCheckFunc(ctx)
+	}
+
+	// Default behavior - healthy
+	return nil
+}
+
 // Reset clears all call tracking
 func (m *MockAPIClient) Reset() {
 	m.TriggerSingleSyncCalls = make([]SingleSyncRequest, 0)
@@ -121,6 +135,7 @@ func (m *MockAPIClient) Reset() {
 	m.TriggerJQLSyncCalls = make([]JQLSyncRequest, 0)
 	m.GetJobStatusCalls = make([]string, 0)
 	m.HealthCheckCalls = 0
+	m.DirectHealthCheckCalls = 0
 }
 
 // SetJobStatusResponse sets a custom response for GetJobStatus
@@ -149,4 +164,10 @@ func (m *MockAPIClient) SetSyncError(err error) {
 	m.TriggerJQLSyncFunc = func(ctx context.Context, request *JQLSyncRequest) (*SyncJobResponse, error) {
 		return nil, err
 	}
+}
+
+// WithHost implements APIClient.WithHost for testing
+func (m *MockAPIClient) WithHost(hostURL string) APIClient {
+	// For mock client, just return self as we don't need to track host changes
+	return m
 }

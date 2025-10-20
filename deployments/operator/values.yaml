@@ -1,0 +1,170 @@
+# Default values for jira-sync-operator
+
+# Operator configuration
+operator:
+  # Operator image configuration
+  image:
+    repository: localhost/jira-sync-operator
+    tag: "latest"
+    pullPolicy: Never
+  
+  # Operator replica configuration
+  replicaCount: 1
+  
+  # Leader election configuration for high availability
+  leaderElection:
+    enabled: true
+    leaseDuration: "15s"
+    renewDeadline: "10s"
+    retryPeriod: "2s"
+    resourceName: "jirasync.sync.jira.io"
+  
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  
+  # Pod security context
+  podSecurityContext:
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  
+  # Node selection
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  # Annotations for deployment
+  annotations: {}
+  
+  # Environment variables
+  env:
+    logLevel: "INFO"
+    logFormat: "json"
+    developmentMode: false
+
+# API Server integration
+apiServer:
+  # API server host for operator integration
+  host: "http://jira-sync-api.jira-sync-v040.svc.cluster.local:8080"
+  
+  # Authentication configuration
+  auth:
+    enabled: false
+    type: "bearer"  # bearer, api-key, basic
+    secretName: "jira-sync-api-auth"
+    secretKey: "token"
+
+# Metrics and monitoring
+metrics:
+  enabled: true
+  port: 8080
+  path: "/metrics"
+  
+  # ServiceMonitor for Prometheus Operator
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: "30s"
+    scrapeTimeout: "10s"
+    labels: {}
+
+# Health checks
+health:
+  enabled: true
+  port: 8081
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Service account configuration
+serviceAccount:
+  # Create service account
+  create: true
+  
+  # Service account name (if not created, must exist)
+  name: ""
+  
+  # Annotations for service account
+  annotations: {}
+
+# RBAC configuration
+rbac:
+  # Create RBAC resources
+  create: true
+  
+  # Additional ClusterRole rules
+  additionalRules: []
+
+# CRDs configuration
+crds:
+  # Install CRDs (should be true for first-time deployment)
+  install: true
+  
+  # Keep CRDs when uninstalling chart
+  keep: true
+
+# Namespace configuration
+namespace:
+  # Create namespace
+  create: true
+  
+  # Namespace name
+  name: "jira-sync-system"
+  
+  # Namespace annotations
+  annotations:
+    "operator.jira-sync.io/version": "v0.4.1"
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Network policy
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443  # HTTPS to JIRA API
+        - protocol: TCP
+          port: 8080  # API server communication
+
+# Upgrade strategy
+updateStrategy:
+  type: "RollingUpdate"
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+# Deployment annotations for GitOps
+gitops:
+  annotations:
+    "argocd.argoproj.io/sync-wave": "1"
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-weight": "1"

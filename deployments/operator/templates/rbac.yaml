@@ -1,0 +1,86 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "jira-sync-operator.clusterRoleName" . }}
+  labels:
+    {{- include "jira-sync-operator.labels" . | nindent 4 }}
+rules:
+# JIRASync CRD management
+- apiGroups: ["sync.jira.io"]
+  resources: ["jirasyncs"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["sync.jira.io"]
+  resources: ["jirasyncs/status"]
+  verbs: ["get", "update", "patch"]
+- apiGroups: ["sync.jira.io"]
+  resources: ["jirasyncs/finalizers"]
+  verbs: ["update"]
+
+# JIRAProject CRD management
+- apiGroups: ["sync.jira.io"]
+  resources: ["jiraprojects"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["sync.jira.io"]
+  resources: ["jiraprojects/status"]
+  verbs: ["get", "update", "patch"]
+
+# SyncSchedule CRD management
+- apiGroups: ["sync.jira.io"]
+  resources: ["syncschedules"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["sync.jira.io"]
+  resources: ["syncschedules/status"]
+  verbs: ["get", "update", "patch"]
+
+# Job management for API server integration
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Pod monitoring for job status
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+
+# Events for status reporting
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+
+# ConfigMaps for operational data
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+# Secrets for JIRA credentials (read-only)
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+
+# Leader election
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+{{- with .Values.rbac.additionalRules }}
+# Additional rules
+{{- toYaml . | nindent 0 }}
+{{- end }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "jira-sync-operator.clusterRoleBindingName" . }}
+  labels:
+    {{- include "jira-sync-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "jira-sync-operator.clusterRoleName" . }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "jira-sync-operator.serviceAccountName" . }}
+  namespace: {{ include "jira-sync-operator.namespace" . }}
+{{- end }}

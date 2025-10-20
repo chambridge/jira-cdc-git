@@ -1,0 +1,403 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: syncschedules.sync.jira.io
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+    api-approved.kubernetes.io: "https://github.com/chambrid/jira-cdc-git/blob/main/docs/api-review.md"
+  labels:
+    app.kubernetes.io/name: jira-sync-operator
+    app.kubernetes.io/component: crd
+    app.kubernetes.io/version: v0.4.1
+spec:
+  group: sync.jira.io
+  names:
+    kind: SyncSchedule
+    listKind: SyncScheduleList
+    plural: syncschedules
+    singular: syncschedule
+    shortNames:
+    - sched
+    - ss
+    categories:
+    - jirasync
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object.'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents.'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SyncScheduleSpec defines the desired state of SyncSchedule
+            type: object
+            required:
+            - schedule
+            - syncTemplate
+            properties:
+              schedule:
+                description: Cron expression for sync scheduling (validated format)
+                type: string
+                pattern: '^(@(annually|yearly|monthly|weekly|daily|hourly|reboot))|(@every (\\d+(ns|us|µs|ms|s|m|h))+)|(((\\d+,)+\\d+|(\\d+(/|-)\\d+)|\\d+|\\*) +){4,5}((\\d+,)+\\d+|(\\d+(/|-)\\d+)|\\d+|\\*)$'
+                minLength: 9
+                maxLength: 100
+              timezone:
+                description: Timezone for schedule evaluation (IANA timezone format)
+                type: string
+                default: "UTC"
+                pattern: '^[A-Za-z]+(/[A-Za-z_-]+)*$'
+                maxLength: 50
+              suspend:
+                description: Suspend scheduled executions
+                type: boolean
+                default: false
+              concurrencyPolicy:
+                description: How to handle concurrent executions
+                type: string
+                enum: ["Allow", "Forbid", "Replace"]
+                default: "Forbid"
+              successfulJobsHistoryLimit:
+                description: Number of successful sync jobs to retain
+                type: integer
+                minimum: 0
+                maximum: 100  # Production limit
+                default: 3
+              failedJobsHistoryLimit:
+                description: Number of failed sync jobs to retain
+                type: integer
+                minimum: 0
+                maximum: 100  # Production limit
+                default: 1
+              startingDeadlineSeconds:
+                description: Deadline in seconds for starting the job if it misses scheduled time
+                type: integer
+                minimum: 0
+                maximum: 86400  # 24 hours max
+              activeDeadlineSeconds:
+                description: Maximum duration for scheduled sync jobs
+                type: integer
+                minimum: 60     # 1 minute minimum
+                maximum: 28800  # 8 hours maximum
+                default: 3600   # 1 hour default
+              syncTemplate:
+                description: Template for creating JIRASync resources
+                type: object
+                required:
+                - spec
+                properties:
+                  metadata:
+                    description: Standard object metadata for created JIRASync
+                    type: object
+                    properties:
+                      labels:
+                        type: object
+                        additionalProperties:
+                          type: string
+                          maxLength: 63
+                          pattern: '^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$'
+                        maxProperties: 20  # Reasonable limit
+                      annotations:
+                        type: object
+                        additionalProperties:
+                          type: string
+                          maxLength: 512
+                        maxProperties: 20  # Reasonable limit
+                  spec:
+                    description: JIRASync specification template
+                    type: object
+                    required:
+                    - syncType
+                    - target
+                    - destination
+                    properties:
+                      syncType:
+                        type: string
+                        enum: ["single", "batch", "jql", "incremental"]
+                      target:
+                        type: object
+                        properties:
+                          issueKeys:
+                            type: array
+                            minItems: 1
+                            maxItems: 100
+                            items:
+                              type: string
+                              pattern: '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'
+                              minLength: 4
+                              maxLength: 50
+                          jqlQuery:
+                            type: string
+                            minLength: 1
+                            maxLength: 1000
+                            pattern: '^[^;\\\\<>"\x00-\x1f]*$'
+                          projectKey:
+                            type: string
+                            pattern: '^[A-Z][A-Z0-9]*$'
+                            minLength: 2
+                            maxLength: 20
+                          epicKey:
+                            type: string
+                            pattern: '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'
+                            minLength: 4
+                            maxLength: 50
+                        oneOf:
+                        - required: ["issueKeys"]
+                        - required: ["jqlQuery"]
+                        - required: ["projectKey"]
+                        - required: ["epicKey"]
+                      destination:
+                        type: object
+                        required:
+                        - repository
+                        properties:
+                          repository:
+                            type: string
+                            minLength: 1
+                            maxLength: 500
+                            pattern: '^(https://[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(\\.git)?|git@[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]:[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(\\.git)?)$'
+                          branch:
+                            type: string
+                            default: "main"
+                            minLength: 1
+                            maxLength: 100
+                            pattern: '^[a-zA-Z0-9][a-zA-Z0-9/_.-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$'
+                          path:
+                            type: string
+                            default: "/"
+                            minLength: 1
+                            maxLength: 200
+                            pattern: '^(/|(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+)/?$'
+                      priority:
+                        type: string
+                        enum: ["low", "normal", "high", "urgent"]
+                        default: "normal"
+                      timeout:
+                        type: integer
+                        default: 1800
+                        minimum: 60
+                        maximum: 7200
+                      retryPolicy:
+                        type: object
+                        properties:
+                          maxRetries:
+                            type: integer
+                            default: 3
+                            minimum: 0
+                            maximum: 10
+                          backoffMultiplier:
+                            type: number
+                            default: 2.0
+                            minimum: 1.0
+                            maximum: 10.0
+                          initialDelay:
+                            type: integer
+                            default: 30
+                            minimum: 1
+                            maximum: 3600
+              resourceQuota:
+                description: Resource limits for scheduled sync operations
+                type: object
+                properties:
+                  maxConcurrentSyncs:
+                    description: Maximum number of concurrent sync operations
+                    type: integer
+                    default: 5
+                    minimum: 1
+                    maximum: 50
+                  maxResourcesPerSync:
+                    description: Maximum resources per individual sync
+                    type: object
+                    properties:
+                      cpu:
+                        type: string
+                        pattern: '^[0-9]+m?$'
+                        default: "500m"
+                      memory:
+                        type: string
+                        pattern: '^[0-9]+(Ki|Mi|Gi)?$'
+                        default: "512Mi"
+          status:
+            description: SyncScheduleStatus defines the observed state of SyncSchedule
+            type: object
+            properties:
+              active:
+                description: List of currently active JIRASync jobs
+                type: array
+                maxItems: 100  # Prevent unbounded growth
+                items:
+                  type: object
+                  required:
+                  - name
+                  - namespace
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 253
+                    namespace:
+                      type: string
+                      minLength: 1
+                      maxLength: 63
+                    apiVersion:
+                      type: string
+                      default: "sync.jira.io/v1alpha1"
+                    kind:
+                      type: string
+                      default: "JIRASync"
+                    uid:
+                      type: string
+                      pattern: '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'
+                    startTime:
+                      type: string
+                      format: date-time
+                    estimatedCompletion:
+                      type: string
+                      format: date-time
+              lastScheduleTime:
+                description: Last time a sync was scheduled
+                type: string
+                format: date-time
+              lastSuccessfulTime:
+                description: Last time a sync completed successfully
+                type: string
+                format: date-time
+              nextScheduleTime:
+                description: Next scheduled execution time
+                type: string
+                format: date-time
+              scheduleHistory:
+                description: Recent schedule execution history
+                type: array
+                maxItems: 20  # Keep reasonable history
+                items:
+                  type: object
+                  required:
+                  - scheduledTime
+                  - status
+                  properties:
+                    scheduledTime:
+                      type: string
+                      format: date-time
+                    actualTime:
+                      type: string
+                      format: date-time
+                    status:
+                      type: string
+                      enum: ["Success", "Failed", "Missed", "Cancelled"]
+                    syncName:
+                      type: string
+                      maxLength: 253
+                    duration:
+                      type: string
+                      pattern: '^\\d+(\\.\\d+)?(ns|us|µs|ms|s|m|h)$'
+                    errorMessage:
+                      type: string
+                      maxLength: 512
+              conditions:
+                description: Conditions represent the latest available observations
+                type: array
+                items:
+                  type: object
+                  required:
+                  - type
+                  - status
+                  - lastTransitionTime
+                  properties:
+                    type:
+                      type: string
+                      enum: ["Ready", "Suspended", "ScheduleValid", "ResourcesAvailable"]
+                    status:
+                      type: string
+                      enum: ["True", "False", "Unknown"]
+                    reason:
+                      type: string
+                      maxLength: 1024
+                      pattern: '^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$'
+                    message:
+                      type: string
+                      maxLength: 32768
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+                    observedGeneration:
+                      type: integer
+                      minimum: 0
+              statistics:
+                description: Schedule execution statistics
+                type: object
+                properties:
+                  totalExecutions:
+                    description: Total number of scheduled executions
+                    type: integer
+                    minimum: 0
+                  successfulExecutions:
+                    description: Number of successful executions
+                    type: integer
+                    minimum: 0
+                  failedExecutions:
+                    description: Number of failed executions
+                    type: integer
+                    minimum: 0
+                  missedExecutions:
+                    description: Number of missed executions (due to concurrency policy)
+                    type: integer
+                    minimum: 0
+                  averageDuration:
+                    description: Average execution duration
+                    type: string
+                    pattern: '^\\d+(\\.\\d+)?(ns|us|µs|ms|s|m|h)$'
+                  successRate:
+                    description: Success rate percentage (0-100)
+                    type: number
+                    minimum: 0
+                    maximum: 100
+              observedGeneration:
+                description: The generation observed by the controller
+                type: integer
+                minimum: 0
+    additionalPrinterColumns:
+    - name: Schedule
+      type: string
+      description: Cron schedule
+      jsonPath: .spec.schedule
+    - name: Timezone
+      type: string
+      description: Schedule timezone
+      jsonPath: .spec.timezone
+      priority: 1
+    - name: Suspend
+      type: boolean
+      description: Is suspended
+      jsonPath: .spec.suspend
+    - name: Active
+      type: integer
+      description: Number of active syncs
+      jsonPath: .status.active
+    - name: Last Schedule
+      type: date
+      description: Last scheduled time
+      jsonPath: .status.lastScheduleTime
+    - name: Success Rate
+      type: string
+      description: Success rate percentage
+      jsonPath: .status.statistics.successRate
+      priority: 1
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+    subresources:
+      status: {}
+  conversion:
+    strategy: None

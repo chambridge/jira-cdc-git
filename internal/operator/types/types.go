@@ -684,6 +684,440 @@ func (in *SyncState) DeepCopy() *SyncState {
 	return out
 }
 
+// APIServerSpec defines the desired state of APIServer
+type APIServerSpec struct {
+	// JIRA connection credentials
+	JIRACredentials JIRACredentialsSpec `json:"jiraCredentials"`
+
+	// Container image configuration
+	Image ImageSpec `json:"image"`
+
+	// Number of API server replicas
+	Replicas *int32 `json:"replicas,omitempty"`
+
+	// Resource requirements for API server
+	Resources *ResourceRequirements `json:"resources,omitempty"`
+
+	// API server configuration
+	Config *APIServerConfig `json:"config,omitempty"`
+
+	// Service configuration
+	Service *ServiceConfig `json:"service,omitempty"`
+}
+
+// JIRACredentialsSpec defines JIRA connection credentials
+type JIRACredentialsSpec struct {
+	// Reference to secret containing JIRA credentials
+	SecretRef SecretRef `json:"secretRef"`
+}
+
+// ImageSpec defines container image configuration
+type ImageSpec struct {
+	// Container image repository
+	Repository string `json:"repository"`
+
+	// Container image tag
+	Tag string `json:"tag"`
+
+	// Image pull policy
+	PullPolicy string `json:"pullPolicy,omitempty"`
+}
+
+// ResourceRequirements defines resource requirements
+type ResourceRequirements struct {
+	// Resource requests
+	Requests *ResourceList `json:"requests,omitempty"`
+
+	// Resource limits
+	Limits *ResourceList `json:"limits,omitempty"`
+}
+
+// ResourceList defines CPU and memory resources
+type ResourceList struct {
+	// CPU resource
+	CPU string `json:"cpu,omitempty"`
+
+	// Memory resource
+	Memory string `json:"memory,omitempty"`
+}
+
+// APIServerConfig defines API server configuration
+type APIServerConfig struct {
+	// Log level for API server
+	LogLevel string `json:"logLevel,omitempty"`
+
+	// Log format for API server
+	LogFormat string `json:"logFormat,omitempty"`
+
+	// API server port
+	Port *int32 `json:"port,omitempty"`
+
+	// Enable Kubernetes job creation
+	EnableJobs *bool `json:"enableJobs,omitempty"`
+
+	// Container image for sync jobs
+	JobImage string `json:"jobImage,omitempty"`
+
+	// Enable safe mode for testing
+	SafeModeEnabled *bool `json:"safeModeEnabled,omitempty"`
+}
+
+// ServiceConfig defines service configuration
+type ServiceConfig struct {
+	// Kubernetes service type
+	Type string `json:"type,omitempty"`
+
+	// Service port
+	Port *int32 `json:"port,omitempty"`
+
+	// Service annotations
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// APIServerStatus defines the observed state of APIServer
+type APIServerStatus struct {
+	// Current phase of the API server
+	Phase string `json:"phase,omitempty"`
+
+	// Current conditions of the API server
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Status of managed Deployment
+	DeploymentStatus *DeploymentStatus `json:"deploymentStatus,omitempty"`
+
+	// Status of managed Service
+	ServiceStatus *ServiceStatus `json:"serviceStatus,omitempty"`
+
+	// API server endpoint URL
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// Health status of API server
+	HealthStatus *HealthStatus `json:"healthStatus,omitempty"`
+}
+
+// DeploymentStatus defines deployment status information
+type DeploymentStatus struct {
+	// Total number of replicas
+	Replicas int32 `json:"replicas,omitempty"`
+
+	// Number of ready replicas
+	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
+
+	// Number of updated replicas
+	UpdatedReplicas int32 `json:"updatedReplicas,omitempty"`
+}
+
+// ServiceStatus defines service status information
+type ServiceStatus struct {
+	// Cluster IP of the service
+	ClusterIP string `json:"clusterIP,omitempty"`
+
+	// Service ports
+	Ports []ServicePort `json:"ports,omitempty"`
+}
+
+// ServicePort defines a service port
+type ServicePort struct {
+	// Port name
+	Name string `json:"name,omitempty"`
+
+	// Port number
+	Port int32 `json:"port,omitempty"`
+
+	// Target port
+	TargetPort int32 `json:"targetPort,omitempty"`
+}
+
+// HealthStatus defines health status information
+type HealthStatus struct {
+	// Whether API server is healthy
+	Healthy bool `json:"healthy,omitempty"`
+
+	// Last health check time
+	LastCheck *metav1.Time `json:"lastCheck,omitempty"`
+
+	// Health check message
+	Message string `json:"message,omitempty"`
+}
+
+// APIServer is the Schema for the apiservers API
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
+// +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".spec.replicas"
+// +kubebuilder:printcolumn:name="Ready",type="integer",JSONPath=".status.deploymentStatus.readyReplicas"
+// +kubebuilder:printcolumn:name="Endpoint",type="string",JSONPath=".status.endpoint"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+type APIServer struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   APIServerSpec   `json:"spec,omitempty"`
+	Status APIServerStatus `json:"status,omitempty"`
+}
+
+// APIServerList contains a list of APIServer
+// +kubebuilder:object:root=true
+type APIServerList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []APIServer `json:"items"`
+}
+
+// DeepCopyInto for APIServer
+func (in *APIServer) DeepCopyInto(out *APIServer) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.Spec.DeepCopyInto(&out.Spec)
+	in.Status.DeepCopyInto(&out.Status)
+}
+
+// DeepCopy copies the receiver, creating a new APIServer.
+func (in *APIServer) DeepCopy() *APIServer {
+	if in == nil {
+		return nil
+	}
+	out := new(APIServer)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyObject copies the receiver, creating a new runtime.Object.
+func (in *APIServer) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+// DeepCopyInto for APIServerList
+func (in *APIServerList) DeepCopyInto(out *APIServerList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]APIServer, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+// DeepCopy copies the receiver, creating a new APIServerList.
+func (in *APIServerList) DeepCopy() *APIServerList {
+	if in == nil {
+		return nil
+	}
+	out := new(APIServerList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyObject copies the receiver, creating a new runtime.Object.
+func (in *APIServerList) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+// DeepCopyInto for APIServerSpec
+func (in *APIServerSpec) DeepCopyInto(out *APIServerSpec) {
+	*out = *in
+	out.JIRACredentials = in.JIRACredentials
+	out.Image = in.Image
+	if in.Replicas != nil {
+		in, out := &in.Replicas, &out.Replicas
+		*out = new(int32)
+		**out = **in
+	}
+	if in.Resources != nil {
+		in, out := &in.Resources, &out.Resources
+		*out = new(ResourceRequirements)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.Config != nil {
+		in, out := &in.Config, &out.Config
+		*out = new(APIServerConfig)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.Service != nil {
+		in, out := &in.Service, &out.Service
+		*out = new(ServiceConfig)
+		(*in).DeepCopyInto(*out)
+	}
+}
+
+// DeepCopy copies the receiver, creating a new APIServerSpec.
+func (in *APIServerSpec) DeepCopy() *APIServerSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(APIServerSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto for APIServerStatus
+func (in *APIServerStatus) DeepCopyInto(out *APIServerStatus) {
+	*out = *in
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]metav1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+	if in.DeploymentStatus != nil {
+		in, out := &in.DeploymentStatus, &out.DeploymentStatus
+		*out = new(DeploymentStatus)
+		**out = **in
+	}
+	if in.ServiceStatus != nil {
+		in, out := &in.ServiceStatus, &out.ServiceStatus
+		*out = new(ServiceStatus)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.HealthStatus != nil {
+		in, out := &in.HealthStatus, &out.HealthStatus
+		*out = new(HealthStatus)
+		(*in).DeepCopyInto(*out)
+	}
+}
+
+// DeepCopy copies the receiver, creating a new APIServerStatus.
+func (in *APIServerStatus) DeepCopy() *APIServerStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(APIServerStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto for ResourceRequirements
+func (in *ResourceRequirements) DeepCopyInto(out *ResourceRequirements) {
+	*out = *in
+	if in.Requests != nil {
+		in, out := &in.Requests, &out.Requests
+		*out = new(ResourceList)
+		**out = **in
+	}
+	if in.Limits != nil {
+		in, out := &in.Limits, &out.Limits
+		*out = new(ResourceList)
+		**out = **in
+	}
+}
+
+// DeepCopy copies the receiver, creating a new ResourceRequirements.
+func (in *ResourceRequirements) DeepCopy() *ResourceRequirements {
+	if in == nil {
+		return nil
+	}
+	out := new(ResourceRequirements)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto for APIServerConfig
+func (in *APIServerConfig) DeepCopyInto(out *APIServerConfig) {
+	*out = *in
+	if in.Port != nil {
+		in, out := &in.Port, &out.Port
+		*out = new(int32)
+		**out = **in
+	}
+	if in.EnableJobs != nil {
+		in, out := &in.EnableJobs, &out.EnableJobs
+		*out = new(bool)
+		**out = **in
+	}
+	if in.SafeModeEnabled != nil {
+		in, out := &in.SafeModeEnabled, &out.SafeModeEnabled
+		*out = new(bool)
+		**out = **in
+	}
+}
+
+// DeepCopy copies the receiver, creating a new APIServerConfig.
+func (in *APIServerConfig) DeepCopy() *APIServerConfig {
+	if in == nil {
+		return nil
+	}
+	out := new(APIServerConfig)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto for ServiceConfig
+func (in *ServiceConfig) DeepCopyInto(out *ServiceConfig) {
+	*out = *in
+	if in.Port != nil {
+		in, out := &in.Port, &out.Port
+		*out = new(int32)
+		**out = **in
+	}
+	if in.Annotations != nil {
+		in, out := &in.Annotations, &out.Annotations
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
+}
+
+// DeepCopy copies the receiver, creating a new ServiceConfig.
+func (in *ServiceConfig) DeepCopy() *ServiceConfig {
+	if in == nil {
+		return nil
+	}
+	out := new(ServiceConfig)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto for ServiceStatus
+func (in *ServiceStatus) DeepCopyInto(out *ServiceStatus) {
+	*out = *in
+	if in.Ports != nil {
+		in, out := &in.Ports, &out.Ports
+		*out = make([]ServicePort, len(*in))
+		copy(*out, *in)
+	}
+}
+
+// DeepCopy copies the receiver, creating a new ServiceStatus.
+func (in *ServiceStatus) DeepCopy() *ServiceStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(ServiceStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto for HealthStatus
+func (in *HealthStatus) DeepCopyInto(out *HealthStatus) {
+	*out = *in
+	if in.LastCheck != nil {
+		in, out := &in.LastCheck, &out.LastCheck
+		*out = (*in).DeepCopy()
+	}
+}
+
+// DeepCopy copies the receiver, creating a new HealthStatus.
+func (in *HealthStatus) DeepCopy() *HealthStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(HealthStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
 func init() {
-	SchemeBuilder.Register(&JIRASync{}, &JIRASyncList{}, &JIRAProject{}, &JIRAProjectList{})
+	SchemeBuilder.Register(&JIRASync{}, &JIRASyncList{}, &JIRAProject{}, &JIRAProjectList{}, &APIServer{}, &APIServerList{})
 }

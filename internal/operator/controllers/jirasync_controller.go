@@ -269,6 +269,72 @@ func (r *JIRASyncReconciler) initializeSync(ctx context.Context, jiraSync *opera
 	log := r.Log.WithValues("jirasync", client.ObjectKeyFromObject(jiraSync))
 	log.Info("Initializing JIRASync")
 
+	// Check for API server availability before processing
+	apiServerReady, err := r.checkAPIServerDependency(ctx, jiraSync)
+	if err != nil {
+		log.Error(err, "Failed to check API server dependency")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
+	if !apiServerReady {
+		log.Info("API server not ready, waiting for dependency")
+		startTime := time.Now()
+		update := StatusUpdate{
+			Phase: PhasePending,
+			SyncStats: &SyncStatsUpdate{
+				StartTime: &startTime,
+			},
+		}
+		if err := r.StatusManager.UpdateStatus(ctx, jiraSync, update); err != nil {
+			log.Error(err, "Failed to update status while waiting for API server")
+		}
+
+		// Set a custom condition for API server readiness
+		// Since there's no UpdateCondition method, we'll use a different approach or add it
+		condition := metav1.Condition{
+			Type:               "APIServerReady",
+			Status:             metav1.ConditionFalse,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Reason:             "WaitingForAPIServer",
+			Message:            "Waiting for API server to be ready",
+		}
+
+		// Update the status with the new condition
+		if jiraSync.Status.Conditions == nil {
+			jiraSync.Status.Conditions = []metav1.Condition{}
+		}
+
+		// Find and update existing condition or add new one
+		found := false
+		for i, existingCondition := range jiraSync.Status.Conditions {
+			if existingCondition.Type == "APIServerReady" {
+				if existingCondition.Status != condition.Status {
+					jiraSync.Status.Conditions[i] = condition
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			jiraSync.Status.Conditions = append(jiraSync.Status.Conditions, condition)
+		}
+
+		if err := r.Status().Update(ctx, jiraSync); err != nil {
+			log.Error(err, "Failed to update APIServerReady condition")
+		}
+
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	// API server is ready, proceed with initialization
+	update := StatusUpdate{
+		Phase: PhasePending,
+	}
+	if err := r.StatusManager.UpdateStatus(ctx, jiraSync, update); err != nil {
+		log.Error(err, "Failed to set initial Pending phase")
+		return ctrl.Result{RequeueAfter: time.Second * 10}, err
+	}
+
 	// Set initialization progress
 	if err := r.StatusManager.UpdateProgress(ctx, jiraSync, 10, "Validating sync specification", StageInitialization); err != nil {
 		log.Error(err, "Failed to update initialization progress")
@@ -295,7 +361,7 @@ func (r *JIRASyncReconciler) initializeSync(ctx context.Context, jiraSync *opera
 
 	// Initialize sync state and statistics
 	startTime := time.Now()
-	update := StatusUpdate{
+	update = StatusUpdate{
 		Phase: PhasePending,
 		Progress: &ProgressUpdate{
 			Percentage:       &[]int{25}[0],
@@ -772,15 +838,16 @@ func (r *JIRASyncReconciler) recordAPICall(endpoint, status string, duration tim
 }
 
 // performHealthCheck checks the health of the API server and updates metrics
+// Uses DirectHealthCheck to bypass circuit breaker and reset it on success
 func (r *JIRASyncReconciler) performHealthCheck(ctx context.Context) {
 	log := r.Log.WithName("health-check")
 
-	err := r.APIClient.HealthCheck(ctx)
+	err := r.APIClient.DirectHealthCheck(ctx)
 	if err != nil {
-		log.Error(err, "API health check failed")
+		log.Error(err, "API direct health check failed")
 		r.apiHealthStatus.WithLabelValues(r.APIHost).Set(0) // Unhealthy
 	} else {
-		log.V(1).Info("API health check passed")
+		log.V(1).Info("API direct health check passed - circuit breaker reset if needed")
 		r.apiHealthStatus.WithLabelValues(r.APIHost).Set(1) // Healthy
 	}
 }

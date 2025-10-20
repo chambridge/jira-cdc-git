@@ -1,0 +1,84 @@
+🎉 JIRA Sync Operator has been successfully deployed!
+
+Release: {{ .Release.Name }}
+Namespace: {{ include "jira-sync-operator.namespace" . }}
+Chart Version: {{ .Chart.Version }}
+App Version: {{ .Chart.AppVersion }}
+
+## Getting Started
+
+1. **Verify the operator is running:**
+   kubectl get deployment {{ include "jira-sync-operator.fullname" . }} -n {{ include "jira-sync-operator.namespace" . }}
+
+2. **Check operator logs:**
+   kubectl logs -n {{ include "jira-sync-operator.namespace" . }} -l app.kubernetes.io/name={{ include "jira-sync-operator.name" . }} -f
+
+3. **View available CRDs:**
+   kubectl get crd | grep sync.jira.io
+
+## Create Your First JIRASync Resource
+
+Create a JIRA credentials secret:
+kubectl create secret generic jira-credentials \
+  --from-literal=base-url=https://your-domain.atlassian.net \
+  --from-literal=email=your-email@company.com \
+  --from-literal=token=your-personal-access-token
+
+Then create a JIRASync resource:
+cat <<EOF | kubectl apply -f -
+apiVersion: sync.jira.io/v1alpha1
+kind: JIRASync
+metadata:
+  name: my-first-sync
+spec:
+  jiraConfig:
+    baseURL: "https://your-domain.atlassian.net"
+    credentialsSecret: "jira-credentials"
+  syncConfig:
+    mode: "Single"
+    issueKeys: ["PROJ-123"]
+  gitConfig:
+    repository: "/tmp/my-sync-repo"
+EOF
+
+## Monitor Sync Progress
+
+Watch your sync:
+kubectl get jirasync my-first-sync -w
+
+Check sync status:
+kubectl describe jirasync my-first-sync
+
+## Useful Commands
+
+{{- if .Values.metrics.enabled }}
+# Access metrics (if enabled)
+kubectl port-forward -n {{ include "jira-sync-operator.namespace" . }} svc/{{ include "jira-sync-operator.fullname" . }}-metrics {{ .Values.metrics.port }}:{{ .Values.metrics.port }}
+# Then visit: http://localhost:{{ .Values.metrics.port }}/metrics
+{{- end }}
+
+{{- if .Values.health.enabled }}
+# Check health status
+kubectl port-forward -n {{ include "jira-sync-operator.namespace" . }} svc/{{ include "jira-sync-operator.fullname" . }}-health {{ .Values.health.port }}:{{ .Values.health.port }}
+# Then visit: http://localhost:{{ .Values.health.port }}/healthz
+{{- end }}
+
+# View all JIRASync resources
+kubectl get jirasync --all-namespaces
+
+# Check operator events
+kubectl get events -n {{ include "jira-sync-operator.namespace" . }} --sort-by='.lastTimestamp'
+
+## Documentation
+
+- Operator Guide: https://github.com/chambrid/jira-cdc-git/blob/main/deployments/operator/OPERATIONS.md
+- Upgrade Guide: https://github.com/chambrid/jira-cdc-git/blob/main/deployments/operator/UPGRADE.md
+- Project Documentation: https://github.com/chambrid/jira-cdc-git
+
+## Support
+
+For issues and questions:
+- GitHub Issues: https://github.com/chambrid/jira-cdc-git/issues
+- Documentation: https://github.com/chambrid/jira-cdc-git/blob/main/README.md
+
+Happy syncing! 🚀

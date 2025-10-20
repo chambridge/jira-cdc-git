@@ -31,19 +31,14 @@ func NewStatusManager(client client.Client, recorder record.EventRecorder, log l
 	}
 }
 
-// Condition types following Kubernetes conventions
+// Condition types following Kubernetes conventions and CRD schema
 const (
-	// Core condition types
-	ConditionTypeReady       = "Ready"
-	ConditionTypeProcessing  = "Processing"
-	ConditionTypeFailed      = "Failed"
-	ConditionTypeProgressing = "Progressing"
-
-	// Extended condition types
-	ConditionTypeValidated = "Validated"
-	ConditionTypeScheduled = "Scheduled"
-	ConditionTypeHealthy   = "Healthy"
-	ConditionTypeDegraded  = "Degraded"
+	// Core condition types (must match CRD schema exactly)
+	ConditionTypeReady      = "Ready"
+	ConditionTypeProcessing = "Processing"
+	ConditionTypeFailed     = "Failed"
+	ConditionTypeValidated  = "Validated"
+	ConditionTypeScheduled  = "Scheduled"
 )
 
 // Standard condition reasons
@@ -160,10 +155,15 @@ func (sm *StatusManager) UpdateStatus(ctx context.Context, jiraSync *operatortyp
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 
+	healthStatus := "unknown"
+	if jiraSync.Status.SyncState != nil {
+		healthStatus = jiraSync.Status.SyncState.HealthStatus
+	}
+
 	log.V(1).Info("Successfully updated JIRASync status",
 		"phase", jiraSync.Status.Phase,
 		"conditions", len(jiraSync.Status.Conditions),
-		"healthStatus", jiraSync.Status.SyncState.HealthStatus)
+		"healthStatus", healthStatus)
 
 	return nil
 }
@@ -226,7 +226,7 @@ func (sm *StatusManager) UpdateProgress(ctx context.Context, jiraSync *operatort
 
 	// Add progressing condition
 	condition := metav1.Condition{
-		Type:               ConditionTypeProgressing,
+		Type:               ConditionTypeProcessing,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             ReasonProcessing,

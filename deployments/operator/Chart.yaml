@@ -1,0 +1,47 @@
+apiVersion: v2
+name: jira-sync-operator
+description: A Helm chart for the JIRA CDC Git Sync Kubernetes Operator
+version: 0.4.1
+appVersion: "v0.4.1"
+type: application
+
+keywords:
+  - jira
+  - sync
+  - operator
+  - kubernetes
+  - gitops
+
+maintainers:
+  - name: JIRA CDC Git Team
+    email: maintainers@example.com
+
+sources:
+  - https://github.com/chambrid/jira-cdc-git
+
+home: https://github.com/chambrid/jira-cdc-git
+
+annotations:
+  category: Productivity
+  operatorframework.io/initialization-resource: |
+    {
+      "apiVersion": "sync.jira.io/v1alpha1",
+      "kind": "JIRASync",
+      "metadata": {
+        "name": "example-jirasync"
+      },
+      "spec": {
+        "jiraConfig": {
+          "baseURL": "https://your-domain.atlassian.net",
+          "credentialsSecret": "jira-credentials"
+        },
+        "syncConfig": {
+          "mode": "JQL",
+          "jqlQuery": "project = DEMO AND status = 'To Do'"
+        },
+        "gitConfig": {
+          "repository": "/tmp/jira-sync-repo"
+        }
+      }
+    }
+  operatorframework.io/suggested-namespace: jira-sync-system

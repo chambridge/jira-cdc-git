@@ -274,15 +274,15 @@ func TestAPIIntegration_HealthCheckFunctionality(t *testing.T) {
 
 	// Test health check success
 	reconciler.performHealthCheck(context.TODO())
-	assert.Equal(t, 1, mockAPI.HealthCheckCalls)
+	assert.Equal(t, 1, mockAPI.DirectHealthCheckCalls)
 
 	// Test health check failure
-	mockAPI.HealthCheckFunc = func(ctx context.Context) error {
+	mockAPI.DirectHealthCheckFunc = func(ctx context.Context) error {
 		return errors.New("API server down")
 	}
 
 	reconciler.performHealthCheck(context.TODO())
-	assert.Equal(t, 2, mockAPI.HealthCheckCalls)
+	assert.Equal(t, 2, mockAPI.DirectHealthCheckCalls)
 }
 
 func TestAPIIntegration_CircuitBreakerSimulation(t *testing.T) {

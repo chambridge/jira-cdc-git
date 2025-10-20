@@ -1,0 +1,76 @@
+{{- if .Values.crds.install }}
+# This file contains CRD installation logic for the Helm chart
+# The actual CRDs are located in the crds/ directory at the chart root
+# and will be installed automatically by Helm before other resources
+
+# Create a Job to verify CRDs are properly installed
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "jira-sync-operator.fullname" . }}-crd-verify
+  namespace: {{ include "jira-sync-operator.namespace" . }}
+  labels:
+    {{- include "jira-sync-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crd-verify
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "jira-sync-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: crd-verify
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "jira-sync-operator.serviceAccountName" . }}
+      securityContext:
+        {{- include "jira-sync-operator.podSecurityContext" . | nindent 8 }}
+      containers:
+      - name: crd-verify
+        image: bitnami/kubectl:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          {{- include "jira-sync-operator.securityContext" . | nindent 10 }}
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Verifying CRD installation..."
+          
+          # Check if JIRASync CRD exists
+          if kubectl get crd jirasyncs.sync.jira.io; then
+            echo "✓ JIRASync CRD found"
+          else
+            echo "✗ JIRASync CRD not found"
+            exit 1
+          fi
+          
+          # Check if JIRAProject CRD exists
+          if kubectl get crd jiraprojects.sync.jira.io; then
+            echo "✓ JIRAProject CRD found"
+          else
+            echo "✗ JIRAProject CRD not found"
+            exit 1
+          fi
+          
+          # Check if SyncSchedule CRD exists
+          if kubectl get crd syncschedules.sync.jira.io; then
+            echo "✓ SyncSchedule CRD found"
+          else
+            echo "✗ SyncSchedule CRD not found"
+            exit 1
+          fi
+          
+          echo "All CRDs verified successfully!"
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+{{- end }}

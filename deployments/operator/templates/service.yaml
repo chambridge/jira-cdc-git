@@ -1,0 +1,40 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "jira-sync-operator.fullname" . }}-metrics
+  namespace: {{ include "jira-sync-operator.namespace" . }}
+  labels:
+    {{- include "jira-sync-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: {{ .Values.metrics.port }}
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    {{- include "jira-sync-operator.selectorLabels" . | nindent 4 }}
+{{- end }}
+
+---
+{{- if .Values.health.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "jira-sync-operator.fullname" . }}-health
+  namespace: {{ include "jira-sync-operator.namespace" . }}
+  labels:
+    {{- include "jira-sync-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: health
+spec:
+  type: ClusterIP
+  ports:
+  - name: health
+    port: {{ .Values.health.port }}
+    targetPort: health
+    protocol: TCP
+  selector:
+    {{- include "jira-sync-operator.selectorLabels" . | nindent 4 }}
+{{- end }}
