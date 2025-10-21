@@ -30,6 +30,16 @@ This system provides automated synchronization of JIRA issues and their relation
 │ - Changes       │    │ - API Server    │    │ - Version History│
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                ▲
+                               │ (Deploys & Manages)
+                       ┌─────────────────┐
+                       │ K8s Operator    │
+                       │                 │
+                       │ - API Lifecycle │
+                       │ - CRD Management│
+                       │ - Status Mgmt   │
+                       │ - Config Sync   │
+                       └─────────────────┘
+                               ▲
                                │
                        ┌─────────────────┐
                        │  Web Interface  │
@@ -174,6 +184,10 @@ internal/             # Private application code
 ├── filesystem/       # File operations
 └── operator/         # ✅ Operator implementation (v0.4.1)
     ├── controllers/  # ✅ JIRASync controller reconciliation
+    │   ├── jirasync_controller.go      # ✅ JIRASync resource management
+    │   ├── apiserver_controller.go     # ✅ API server lifecycle management
+    │   └── status_manager.go           # ✅ Status and condition management
+    ├── config/       # ✅ Configuration management and validation
     └── types/        # ✅ CRD type definitions
 
 crds/                 # ✅ Custom Resource Definitions (v0.4.1)
@@ -190,12 +204,15 @@ deployments/          # ✅ Kubernetes deployment manifests (v0.4.1)
 
 ## Current Release: v0.4.1 (Operator and Security Implementation)
 
-**Status**: 🚀 MAJOR FEATURES COMPLETE - Kubernetes Operator with Status Management  
+**Status**: 🚀 MAJOR FEATURES COMPLETE - Kubernetes Operator with API Server Lifecycle Management
 - ✅ **JCG-025**: Custom Resource Definitions (CRDs) - COMPLETED
-- ✅ **JCG-026**: Operator Controller Core Logic - COMPLETED  
+- ✅ **JCG-026**: Operator Controller Core Logic - COMPLETED
 - ✅ **JCG-027**: API Server Integration - COMPLETED
 - ✅ **JCG-028**: RBAC and Security Configuration - COMPLETED
 - ✅ **JCG-029**: Resource Status and Condition Management - COMPLETED
+- ✅ **JCG-030**: Operator Deployment and Operations - COMPLETED
+- ✅ **JCG-031**: Operator Integration Testing - COMPLETED
+- ✅ **JCG-032**: API Server Lifecycle Management - COMPLETED
 
 ### Technology Stack
 - **Language**: Go 1.24+
@@ -211,7 +228,7 @@ deployments/          # ✅ Kubernetes deployment manifests (v0.4.1)
 - **Operator**: Production-ready reconciliation with finalizers and retry logic
 - **Status Management**: Comprehensive progress tracking with Kubernetes conditions and health monitoring
 - **Observability**: Prometheus metrics integration with automated troubleshooting and status reporting
-- **API Integration**: Operator integrates with v0.4.0 API server with circuit breaker patterns
+- **API Lifecycle**: Operator manages complete API server deployment and lifecycle (v0.4.1+)
 - **Architecture**: Clean interface-based design with implemented Kubernetes operator
 - **Testing**: Comprehensive end-to-end testing with performance benchmarking and always-working code validation
 - **Security**: Enterprise-grade RBAC, input validation (15+ attack scenarios), and Kubernetes security standards compliance

@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	operatorconfig "github.com/chambrid/jira-cdc-git/internal/operator/config"
 	operatortypes "github.com/chambrid/jira-cdc-git/internal/operator/types"
 )
 
@@ -39,11 +40,14 @@ func setupAPIServerTestReconciler() (*APIServerReconciler, client.Client) {
 	// Create event recorder and logger for tests
 	logger := ctrl.Log.WithName("test")
 
-	// Create reconciler
+	// Create reconciler with configuration management components
 	reconciler := &APIServerReconciler{
-		Client: fakeClient,
-		Scheme: testScheme,
-		Log:    logger,
+		Client:          fakeClient,
+		Scheme:          testScheme,
+		Log:             logger,
+		ConfigValidator: operatorconfig.NewConfigValidator(fakeClient),
+		DriftDetector:   operatorconfig.NewDriftDetector(fakeClient, logger),
+		ChangeDetector:  operatorconfig.NewChangeDetector(logger),
 	}
 
 	// Initialize metrics manually for testing (they won't be registered)
@@ -133,6 +137,21 @@ func TestAPIServerReconciler_InitializeAPIServer(t *testing.T) {
 	err := fakeClient.Create(context.TODO(), apiServer)
 	require.NoError(t, err)
 
+	// Create the required secret
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "jira-credentials",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"base-url": []byte("https://test.atlassian.net"),
+			"email":    []byte("test@example.com"),
+			"pat":      []byte("test-token"),
+		},
+	}
+	err = fakeClient.Create(context.TODO(), secret)
+	require.NoError(t, err)
+
 	req := reconcile.Request{
 		NamespacedName: types.NamespacedName{
 			Name:      apiServer.Name,
@@ -180,7 +199,7 @@ func TestAPIServerReconciler_CreateResources(t *testing.T) {
 		Data: map[string][]byte{
 			"base-url": []byte("https://test.atlassian.net"),
 			"email":    []byte("test@example.com"),
-			"token":    []byte("test-token"),
+			"pat":      []byte("test-token"),
 		},
 	}
 	err = fakeClient.Create(context.TODO(), secret)
@@ -277,7 +296,7 @@ func TestAPIServerReconciler_UpdateExistingResources(t *testing.T) {
 		Data: map[string][]byte{
 			"base-url": []byte("https://test.atlassian.net"),
 			"email":    []byte("test@example.com"),
-			"token":    []byte("test-token"),
+			"pat":      []byte("test-token"),
 		},
 	}
 	err = fakeClient.Create(context.TODO(), secret)
@@ -415,7 +434,7 @@ func TestAPIServerReconciler_ValidateCredentials(t *testing.T) {
 			Data: map[string][]byte{
 				"base-url": []byte("https://test.atlassian.net"),
 				"email":    []byte("test@example.com"),
-				"token":    []byte("test-token"),
+				"pat":      []byte("test-token"),
 			},
 		}
 		err = fakeClient.Create(context.TODO(), secret)

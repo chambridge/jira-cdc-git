@@ -420,3 +420,9 @@ func (r *APIServerReconciler) performHealthCheck(ctx context.Context, apiServer 
 	}
 	return nil
 }
+
+// updateStatusCondition updates a specific condition in the APIServer status
+func (r *APIServerReconciler) updateStatusCondition(ctx context.Context, apiServer *operatortypes.APIServer, condition metav1.Condition) {
+	r.setCondition(apiServer, condition.Type, condition.Status, condition.Reason, condition.Message)
+	_ = r.Status().Update(ctx, apiServer)
+}
