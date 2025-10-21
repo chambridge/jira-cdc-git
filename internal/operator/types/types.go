@@ -793,6 +793,9 @@ type APIServerStatus struct {
 
 	// Health status of API server
 	HealthStatus *HealthStatus `json:"healthStatus,omitempty"`
+
+	// The generation observed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // DeploymentStatus defines deployment status information

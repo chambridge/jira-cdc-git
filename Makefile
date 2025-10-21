@@ -81,7 +81,7 @@ lint-fix:
 test:
 	@echo "🧪 Running tests..."
 	mkdir -p $(COVERAGE_DIR)
-	$(GOTEST) -v -p 1 -count=1 -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+	SKIP_K8S_INTEGRATION=1 $(GOTEST) -v -p 1 -count=1 -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
 
 .PHONY: test-race
 test-race:

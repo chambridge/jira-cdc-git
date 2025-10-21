@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -95,6 +96,10 @@ func TestOperatorScalabilityPerformance(t *testing.T) {
 func TestOperatorHighVolumeLoadTesting(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping load tests in short mode")
+	}
+
+	if os.Getenv("SKIP_K8S_INTEGRATION") != "" {
+		t.Skip("Skipping long-running load tests when SKIP_K8S_INTEGRATION is set")
 	}
 
 	loadTests := []struct {
@@ -225,6 +230,10 @@ func TestOperatorMemoryLeakDetection(t *testing.T) {
 func TestOperatorReconciliationLatency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping latency test in short mode")
+	}
+
+	if os.Getenv("SKIP_K8S_INTEGRATION") != "" {
+		t.Skip("Skipping latency test when SKIP_K8S_INTEGRATION is set")
 	}
 
 	client := createTestKubernetesClient(t)

@@ -9,50 +9,65 @@ The JIRA CDC Git Sync Kubernetes operator provides declarative management of JIR
 - Kubernetes cluster (v1.24+)
 - kubectl configured for your cluster
 - JIRA credentials (base URL, email, Personal Access Token)
-- Optional: v0.4.0 API server for enhanced sync operations
+- Note: API server is automatically deployed and managed by the operator (v0.4.1+)
 
-## API Server Integration (v0.4.1)
+## API Server Lifecycle Management (v0.4.1)
 
-The operator supports integration with the v0.4.0 API server for enhanced sync operations:
+The operator automatically deploys and manages the API server lifecycle. No separate API server deployment is required.
 
 ### Benefits
+- **Automatic Deployment**: API server is deployed and managed automatically
+- **Configuration Sync**: Operator configuration drives API server settings
+- **Health Monitoring**: Continuous health checks and automatic recovery
+- **Scaling Management**: Automatic scaling based on workload demands
+- **Upgrade Management**: Rolling updates and rollback capabilities
 - **Enhanced Monitoring**: Centralized job tracking and metrics
-- **Circuit Breaker**: Automatic error handling and retry mechanisms  
+- **Circuit Breaker**: Automatic error handling and retry mechanisms
 - **Multiple Auth**: Bearer token, API key, and Basic authentication
-- **Health Checks**: Automatic API server availability monitoring
 
-### Configuration
-Enable API integration by setting environment variables:
+### Automatic Configuration
+The operator automatically configures the API server using its own configuration. The API server inherits:
 
-```bash
-# API server integration environment variables
-API_SERVER_URL=http://api-server:8080
-API_AUTH_TYPE=Bearer  # Bearer, APIKey, or Basic
-API_AUTH_TOKEN=your-api-token
+- **JIRA Credentials**: From operator's jira-credentials secret
+- **Scaling Settings**: From operator's APIServer resource spec
+- **Network Configuration**: Automatic service discovery within cluster
+- **Monitoring**: Prometheus metrics and health endpoints
+
+#### Manual API Server Configuration (Advanced)
+For custom API server configurations, create an APIServer resource:
+
+```yaml
+apiVersion: sync.jira.io/v1alpha1
+kind: APIServer
+metadata:
+  name: api-server-instance
+spec:
+  replicas: 2
+  image: jira-sync-api:latest
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 ```
 
-### Deployment with API Integration
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: jira-sync-operator
-spec:
-  template:
-    spec:
-      containers:
-      - name: operator
-        image: jira-sync-operator:latest
-        env:
-        - name: API_SERVER_URL
-          value: "http://api-server:8080"
-        - name: API_AUTH_TYPE
-          value: "Bearer"
-        - name: API_AUTH_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: api-credentials
-              key: token
+### Monitoring API Server Status
+Since the operator manages the API server automatically, you can monitor its status:
+
+```bash
+# Check API server deployment status
+kubectl get apiserver -A
+
+# Get detailed API server information
+kubectl describe apiserver api-server-instance
+
+# View API server logs
+kubectl logs -l app=jira-sync-api-server
+
+# Check API server health
+kubectl get apiserver api-server-instance -o jsonpath='{.status.phase}'
 ```
 
 ## Quick Start
@@ -79,6 +94,8 @@ kubectl create secret generic jira-credentials \
 ```
 
 ### 4. Deploy the Operator
+
+The operator will automatically deploy and manage the API server. No separate API server deployment is needed.
 
 ```bash
 kubectl apply -f - <<EOF

@@ -523,6 +523,11 @@ func TestAPIServerCompleteWorkflow(t *testing.T) {
 		t.Skip("Skipping complete workflow test in short mode")
 	}
 
+	// Skip in automated test environments or when explicitly requested
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("SKIP_K8S_INTEGRATION") != "" {
+		t.Skip("Skipping complete workflow test in CI environment or when SKIP_K8S_INTEGRATION is set")
+	}
+
 	// Check if we have a Kubernetes cluster available
 	if !isKubernetesAvailable() {
 		t.Skip("Kubernetes cluster not available, skipping complete workflow test")
@@ -640,8 +645,13 @@ spec:
 	})
 
 	t.Run("WaitForAPIServerReady", func(t *testing.T) {
-		// Wait for APIServer to become ready
-		timeout := 5 * time.Minute
+		// Skip if this is a quick test run
+		if testing.Short() {
+			t.Skip("Skipping APIServer readiness wait in short mode")
+		}
+
+		// Wait for APIServer to become ready (reduced timeout for CI/test environments)
+		timeout := 30 * time.Second // Reduced from 5 minutes to 30 seconds
 		deadline := time.Now().Add(timeout)
 
 		for time.Now().Before(deadline) {

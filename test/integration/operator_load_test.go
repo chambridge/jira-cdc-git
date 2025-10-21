@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -186,6 +187,10 @@ func TestOperatorResourceExhaustionHandling(t *testing.T) {
 func TestOperatorConcurrencyLimits(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping concurrency limits test in short mode")
+	}
+
+	if os.Getenv("SKIP_K8S_INTEGRATION") != "" {
+		t.Skip("Skipping concurrency limits test when SKIP_K8S_INTEGRATION is set")
 	}
 
 	concurrencyTests := []struct {

@@ -16,14 +16,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	operatorconfig "github.com/chambrid/jira-cdc-git/internal/operator/config"
 	operatortypes "github.com/chambrid/jira-cdc-git/internal/operator/types"
 )
 
 // APIServerReconciler reconciles an APIServer object
 type APIServerReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Log    logr.Logger
+	Scheme          *runtime.Scheme
+	Log             logr.Logger
+	ConfigValidator *operatorconfig.ConfigValidator
+	DriftDetector   *operatorconfig.DriftDetector
+	ChangeDetector  *operatorconfig.ChangeDetector
 }
 
 const (
@@ -63,10 +67,14 @@ const (
 
 // NewAPIServerReconciler creates a new APIServerReconciler
 func NewAPIServerReconciler(mgr ctrl.Manager) *APIServerReconciler {
+	log := ctrl.Log.WithName("controllers").WithName("APIServer")
 	return &APIServerReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Log:    ctrl.Log.WithName("controllers").WithName("APIServer"),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		Log:             log,
+		ConfigValidator: operatorconfig.NewConfigValidator(mgr.GetClient()),
+		DriftDetector:   operatorconfig.NewDriftDetector(mgr.GetClient(), log.WithName("DriftDetector")),
+		ChangeDetector:  operatorconfig.NewChangeDetector(log.WithName("ChangeDetector")),
 	}
 }
 
@@ -99,6 +107,23 @@ func (r *APIServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Validate configuration before proceeding
+	if r.ConfigValidator != nil {
+		if validationResult := r.ConfigValidator.ValidateAPIServerSpec(ctx, &apiServer.Spec, apiServer.Namespace); !validationResult.Valid {
+			log.Error(fmt.Errorf("configuration validation failed"), "Configuration validation failed", "errors", validationResult.Errors)
+			r.updateStatusFailed(ctx, apiServer, "ValidationFailed", fmt.Sprintf("Configuration validation failed: %d errors", len(validationResult.Errors)))
+			return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+		}
+	}
+
+	// Detect configuration changes if this is an update
+	if apiServer.Status.ObservedGeneration > 0 && apiServer.Generation != apiServer.Status.ObservedGeneration {
+		// We need the previous spec to detect changes, for now we'll just log the change
+		log.Info("APIServer generation changed, configuration update detected",
+			"oldGeneration", apiServer.Status.ObservedGeneration,
+			"newGeneration", apiServer.Generation)
 	}
 
 	// Update phase to Creating if Pending
@@ -147,6 +172,41 @@ func (r *APIServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err != nil {
 			log.Error(err, "Health check failed")
 			// Don't fail reconciliation on health check failure, just log it
+		}
+	}
+
+	// Perform drift detection to ensure configuration consistency
+	if r.DriftDetector != nil {
+		driftResult, err := r.DriftDetector.DetectDrift(ctx, apiServer)
+		if err != nil {
+			log.Error(err, "Failed to detect configuration drift")
+			// Don't fail reconciliation on drift detection failure, just log it
+		} else if driftResult.HasDrift {
+			log.Info("Configuration drift detected",
+				"specHash", driftResult.SpecHash,
+				"actualHash", driftResult.ActualHash,
+				"recommendation", driftResult.Recommendation)
+
+			// Update status with drift detection results
+			condition := metav1.Condition{
+				Type:    "ConfigurationSynced",
+				Status:  metav1.ConditionFalse,
+				Reason:  "ConfigurationDrift",
+				Message: driftResult.Recommendation,
+			}
+			r.updateStatusCondition(ctx, apiServer, condition)
+
+			// Trigger faster reconciliation when drift is detected
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		} else {
+			// Update status to indicate configuration is synced
+			condition := metav1.Condition{
+				Type:    "ConfigurationSynced",
+				Status:  metav1.ConditionTrue,
+				Reason:  "ConfigurationSynced",
+				Message: "All configuration is properly synchronized",
+			}
+			r.updateStatusCondition(ctx, apiServer, condition)
 		}
 	}
 
